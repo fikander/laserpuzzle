@@ -72,6 +72,6 @@ subclass with `id`, `name`, `description`, `params`, `generate(v, ctx) -> Design
 ## Status / next steps
 
 Done: core pipeline, `stacked-layers` (spine half-lap + dowel/spacers), `fit-test` (slot comb + rod hole strip),
-`core/joints.py` (tab_slot, cross_lap), web UI with 3D + sheet preview.
-Next: parametric `vehicle` generator (push toy for a 3-year-old: 3 mm ply, 3 mm steel axles, scale 1:N with
-toy proportions, blind hub caps, glued). Then finger/T-slot joints, living hinge, better nesting (`docs/roadmap.md`).
+`core/joints.py` (tab_slot, cross_lap), `vehicle` (preset side profile -> sides + tabbed panel chain, rod axles,
+laminated wheels with blind caps; push toy for a 3-year-old), web UI with 3D + sheet preview.
+Next: finger/T-slot joints, living hinge (vehicle roof), better nesting, custom vehicle profiles (`docs/roadmap.md`).

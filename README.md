@@ -8,7 +8,8 @@ Generators so far:
 | id | what it makes |
 |---|---|
 | `stacked-layers` | Slices a model (e.g. a chess piece) into layers with gaps, joined by a central spine or a dowel + spacers |
-| `fit-test` | Calibration coupon to find the right kerf / slot clearance for your material |
+| `fit-test` | Calibration coupon to find the right kerf / slot clearance (and rod hole fits) for your material |
+| `vehicle` | Push-toy car from presets (sedan, jeep, van, bus...) at scale 1:N: tabbed panel body, steel-rod axles, laminated wheels |
 
 Planned: cars from 3 drawings, humanoid figures, simple mechanisms, marble runs — see [docs/roadmap.md](docs/roadmap.md).
 

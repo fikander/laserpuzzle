@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {"name": "laserpuzzle-ui", "runtimeExecutable": ".venv/bin/laserpuzzle", "runtimeArgs": ["ui", "--port", "8766"], "port": 8766}
+  ]
+}

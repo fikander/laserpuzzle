@@ -86,9 +86,14 @@ def _discover() -> None:
             importlib.import_module(f"laserpuzzle.generators.{mod.name}")
 
 
+_discovered = False
+
+
 def registry() -> dict[str, type[Generator]]:
-    if not _REGISTRY:
+    global _discovered
+    if not _discovered:      # not "if not _REGISTRY": importing one generator module directly registers it
         _discover()
+        _discovered = True
     return dict(_REGISTRY)
 
 

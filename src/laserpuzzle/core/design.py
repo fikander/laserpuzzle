@@ -112,9 +112,12 @@ class Design:
             r = rows.setdefault(p.group, {"item": p.group, "kind": "cut", "count": 0, "thickness": p.thickness})
             r["count"] += p.quantity
         out = list(rows.values())
+        hw: dict[tuple, dict] = {}                 # identical items placed several times -> one row
         for h in self.hardware:
-            out.append({"item": h.name, "kind": h.kind, "count": h.quantity, "size": h.size, "note": h.note})
-        return out
+            key = (h.name, h.kind, tuple(sorted(h.size.items())), h.note)
+            r = hw.setdefault(key, {"item": h.name, "kind": h.kind, "count": 0, "size": h.size, "note": h.note})
+            r["count"] += h.quantity
+        return out + list(hw.values())
 
 
 def multipolygon(geom: BaseGeometry) -> MultiPolygon:

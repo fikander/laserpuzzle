@@ -27,6 +27,11 @@ needs real joints.
 
 ## Generators
 
+### ✅ `vehicle`: parametric push-toy car (done)
+
+Presets + scale, see [generators/vehicle.md](generators/vehicle.md). Follow-ups: living-hinge roof, custom profile
+(points / SVG side view, which is a cheap first step towards `car-views`), steering, truck with separate cab.
+
 ### `car-views`: car from 3 orthographic drawings + isometric reference
 
 Input: side, front and top silhouettes (images or SVG), overall length, optional feature drawings (windows,
