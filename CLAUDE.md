@@ -33,6 +33,7 @@ src/laserpuzzle/
   pipeline.py      run(): generator -> design -> sheets -> collisions; Run.preview()/write()/zip
   cli.py           argparse entry point
   ui/server.py     FastAPI app; ui/static/ = plain HTML/CSS/JS + three.js from CDN (no build step)
+scripts/           readme_images.py: three.js showcase scenes (real generator output) for docs/images/
 tests/             pytest; synthetic meshes, no network
 docs/              architecture, adding generators, fabrication, per-generator docs, roadmap
 ```

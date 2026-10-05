@@ -574,12 +574,12 @@ class Vehicle(Generator):
             yp = -h.peg_back
             outline = outline.union(rect(c - h.tongue_w / 2, yp, c + h.tongue_w / 2, 0.0)).union(
                 Point(c, yp).buffer(h.tongue_w / 2, quad_segs=16))
-            d.stats["hitch_rear_x"] = round(float(p.a[0]) + yp, 3)
+            d.meta["hitch_rear_x"] = round(float(p.a[0]) + yp, 3)
         if trailer:
             b = h.drawbar(W / 2, v.rim)
             outline = outline.union(rect(c - h.tongue_w / 2, p.length, c + h.tongue_w / 2,
                                          p.length + b - h.keep_out))
-            d.stats["hitch_front_x"] = round(float(p.a[0]) + p.length + b, 3)
+            d.meta["hitch_front_x"] = round(float(p.a[0]) + p.length + b, 3)
         return clean(outline)
 
     @staticmethod
@@ -587,7 +587,7 @@ class Vehicle(Generator):
                      top: float) -> None:
         h = Hitch(t)
         if v.rear_hitch:
-            xp = d.stats["hitch_rear_x"]
+            xp = d.meta["hitch_rear_x"]
             x0, x1 = xp - h.peg_w / 2, xp + h.peg_w / 2
             r = 2.0
             peg = rect(x0, top, x1, top + h.peg_h).buffer(-r).buffer(r, quad_segs=8).union(
@@ -598,7 +598,7 @@ class Vehicle(Generator):
             d.warnings += j.warnings
             d.parts.append(part)
         if trailer:
-            xp = d.stats["hitch_front_x"]
+            xp = d.meta["hitch_front_x"]
             bar = rect(x_front, -h.drawbar_w / 2, xp, h.drawbar_w / 2).union(
                 Point(xp, 0).buffer(h.ring_r, quad_segs=32)).difference(
                 Point(xp, 0).buffer(h.ring_hole / 2, quad_segs=32))

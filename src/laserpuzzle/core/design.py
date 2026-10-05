@@ -102,6 +102,7 @@ class Design:
     notes: list[str] = field(default_factory=list)      # assembly instructions, tips
     source_mesh: Any = None                             # trimesh.Trimesh in world coords (for ghost preview)
     stats: dict[str, Any] = field(default_factory=dict)
+    meta: dict[str, Any] = field(default_factory=dict)   # machine-readable extras for code, not shown to users
 
     def warn(self, msg: str) -> None:
         self.warnings.append(msg)

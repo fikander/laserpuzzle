@@ -85,3 +85,10 @@ collision-free insertion path) — see roadmap.
 Frontend: `ui/static/{index.html,app.js,style.css}`, no build step, three.js via importmap from jsdelivr.
 Each part is an `ExtrudeGeometry` of its outline placed with `matrix` (column-major); explode offsets are
 applied to a wrapper group. Last-used params are stored per generator in localStorage.
+
+## README images
+
+`docs/images/*` are screenshots. The renders (`convoy`, `lineup`, `exploded`, `pawn`) come from
+`scripts/readme_images.py`, which writes one HTML page with every scene built from real generator output
+(open `scenes.html#convoy` etc. at 1600×900 and screenshot it). `app.png` is the web UI and `cut-sheet.png`
+is a jeep cut file on a 380×160 mm sheet.

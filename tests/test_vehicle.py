@@ -77,8 +77,8 @@ def couple(car: dict, trailer: dict, angle_deg: float = 0.0, shift: float = 0.0)
     rot = np.eye(4)
     rot[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
     to_peg, from_ring = np.eye(4), np.eye(4)
-    to_peg[0, 3] = cd.stats["hitch_rear_x"] + shift
-    from_ring[0, 3] = -td.stats["hitch_front_x"]
+    to_peg[0, 3] = cd.meta["hitch_rear_x"] + shift
+    from_ring[0, 3] = -td.meta["hitch_front_x"]
     m = to_peg @ rot @ from_ring
     parts = [Part("car:" + p.name, p.outline, p.thickness, p.transform) for p in cd.parts]
     parts += [Part("tr:" + p.name, p.outline, p.thickness, m @ p.transform) for p in td.parts]
