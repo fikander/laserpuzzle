@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>laserpuzzle</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark"></span>laserpuzzle</div>
+    <select id="generator" title="Generator"></select>
+    <p id="gen-desc"></p>
+    <div class="status" id="status">idle</div>
+  </header>
+
+  <aside id="form-panel">
+    <form id="form"></form>
+    <div class="form-actions">
+      <label class="check"><input type="checkbox" id="auto" checked> Auto-update</label>
+      <label class="check"><input type="checkbox" id="check" checked> Collision check</label>
+      <button id="go" class="primary">Generate</button>
+    </div>
+  </aside>
+
+  <main>
+    <nav class="tabs">
+      <button data-tab="assembly" class="active">Assembly</button>
+      <button data-tab="sheets">Cut sheets</button>
+    </nav>
+    <section id="tab-assembly" class="tab active">
+      <div id="viewport"></div>
+      <div class="toolbar">
+        <label>Explode <input type="range" id="explode" min="0" max="1" step="0.01" value="0"></label>
+        <label class="check"><input type="checkbox" id="ghost"> Model ghost</label>
+        <label class="check"><input type="checkbox" id="engrave" checked> Engraving</label>
+        <button id="reset-view">Reset view</button>
+        <span id="picked"></span>
+      </div>
+    </section>
+    <section id="tab-sheets" class="tab">
+      <div id="sheets"></div>
+    </section>
+  </main>
+
+  <aside id="info-panel">
+    <div class="card" id="downloads-card">
+      <h3>Output</h3>
+      <div id="downloads" class="muted">Generate to get files.</div>
+      <div class="save-row">
+        <input id="save-name" placeholder="output name" value="">
+        <button id="save">Save to output/</button>
+      </div>
+      <div id="save-result" class="muted small"></div>
+    </div>
+    <div class="card" id="warnings-card" hidden><h3>Warnings</h3><ul id="warnings"></ul></div>
+    <div class="card"><h3>Stats</h3><dl id="stats" class="muted">-</dl></div>
+    <div class="card"><h3>Bill of materials</h3><table id="bom"></table></div>
+    <div class="card"><h3>Assembly</h3><ol id="notes"></ol></div>
+  </aside>
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

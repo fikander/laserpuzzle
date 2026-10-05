@@ -1,0 +1,78 @@
+import numpy as np
+import trimesh
+from shapely.geometry import Polygon, box
+
+from laserpuzzle.core import font, layout
+from laserpuzzle.core.design import Part, horizontal, vertical_xz
+from laserpuzzle.core.geometry import band_x, kerf_offset, section
+from laserpuzzle.core.params import FABRICATION_PARAMS, Param, coerce_values
+
+
+def test_kerf_grows_outline_and_shrinks_holes():
+    sq = box(0, 0, 10, 10).difference(box(4, 4, 6, 6))
+    k = kerf_offset(sq, 0.2)
+    minx, miny, maxx, maxy = k.bounds
+    assert abs(maxx - minx - 10.2) < 1e-6
+    hole = Polygon(k.interiors[0])
+    assert abs(hole.area - 1.8 ** 2) < 1e-6
+
+
+def test_section_resolves_holes():
+    tube = trimesh.creation.annulus(r_min=5, r_max=10, height=20)
+    g = section(tube, (0, 0, 0), (0, 0, 1), (1, 0, 0), (0, 1, 0))
+    assert abs(g.area - np.pi * (100 - 25)) < 2.0
+
+
+def test_band_x_merges_spans():
+    g = box(0, 0, 2, 10).union(box(5, 0, 8, 10))
+    assert band_x(g, 2, 3) == [(0.0, 2.0), (5.0, 8.0)]
+
+
+def test_params_coerce_and_validate():
+    ps = [Param("a", "float", 1.0, min=0), Param("b", "bool", False), Param("c", "choice", "x", choices=["x", "y"])]
+    v = coerce_values(ps, {"a": "2.5", "b": "true"})
+    assert v.a == 2.5 and v.b is True and v.c == "x"
+    try:
+        coerce_values(ps, {"a": -1})
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+    assert {p.name for p in FABRICATION_PARAMS} >= {"thickness", "kerf", "clearance"}
+
+
+def test_transforms_are_rigid():
+    for m in (horizontal(5), vertical_xz(0, 3)):
+        r = m[:3, :3]
+        assert np.allclose(r @ r.T, np.eye(3))
+        assert np.isclose(np.linalg.det(r), 1.0)
+
+
+def test_nest_keeps_parts_on_sheet_and_apart():
+    parts = [Part(f"p{i}", box(0, 0, 40 + i, 20), 3) for i in range(30)]
+    fps = [fp for p in parts for fp in layout.fabricate(p, 0.1, labels=False)]
+    sheets, warns = layout.nest(fps, 300, 200, spacing=2)
+    assert not warns
+    placed = [it.cut for s in sheets for it in s.items]
+    assert len(placed) == 30
+    for s in sheets:
+        for it in s.items:
+            minx, miny, maxx, maxy = it.cut.bounds
+            assert minx >= 0 and miny >= 0 and maxx <= s.width and maxy <= s.height
+        cuts = [it.cut for it in s.items]
+        for i in range(len(cuts)):
+            for j in range(i + 1, len(cuts)):
+                assert cuts[i].intersection(cuts[j]).area < 1e-9
+
+
+def test_font_renders_known_chars():
+    lines = font.text_lines("L12", 3)
+    assert len(lines) >= 4
+    assert abs(font.text_width("AB", 6) - 10) < 1e-9
+
+
+def test_fit_test_generator():
+    from laserpuzzle.pipeline import run
+
+    r = run("fit-test", {"count": 5})
+    assert len(r.design.parts) == 2
+    assert r.collisions == []

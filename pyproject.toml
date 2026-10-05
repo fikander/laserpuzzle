@@ -1,0 +1,35 @@
+[project]
+name = "laserpuzzle"
+version = "0.1.0"
+description = "Generate laser-cut 3D puzzles (flat parts that assemble into 3D objects) from 3D models, drawings and parameters."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "trimesh>=4.0",
+    "shapely>=2.0",
+    "mapbox-earcut>=1.0",   # triangulation for trimesh.extrude_polygon
+    "manifold3d>=2.4",      # boolean ops for collision checks
+    "networkx>=3.0",        # trimesh graph helpers
+    "rtree>=1.0",
+    "ezdxf>=1.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[project.scripts]
+laserpuzzle = "laserpuzzle.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/laserpuzzle"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
