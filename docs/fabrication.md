@@ -10,7 +10,10 @@
    - *sliding fit* (puzzle you take apart): goes in by hand without forcing.
 4. Enter that value as *Slot clearance* for that material. If all slots are tight, increase *kerf*.
    If all are loose, decrease it.
-5. Note the values per material (a table at the bottom of this file is a good place).
+5. For round rods (axles, dowels), push the rod through the hole strip and note two offsets: **press fit**
+   (firm push, the rod cannot be turned by hand) and **running fit** (spins freely, no wobble). Laser holes
+   are slightly conical, so try from both faces.
+6. Note the values per material (a table at the bottom of this file is a good place).
 
 ## Kerf vs clearance
 
@@ -39,6 +42,6 @@ Set kerf so that a plain square comes out the right size. Then use clearance to 
 
 ## Calibrated values
 
-| Material | Machine | Thickness (measured) | Kerf | Clearance | Notes |
-|---|---|---|---|---|---|
-| | | | | | |
+| Material | Machine | Thickness (measured) | Kerf | Clearance | Rod | Press-fit hole | Running-fit hole | Notes |
+|---|---|---|---|---|---|---|---|---|
+| | | | | | | | | |

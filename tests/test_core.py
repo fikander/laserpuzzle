@@ -73,6 +73,19 @@ def test_font_renders_known_chars():
 def test_fit_test_generator():
     from laserpuzzle.pipeline import run
 
-    r = run("fit-test", {"count": 5})
+    r = run("fit-test", {"count": 5, "rod_diameter": 0})
     assert len(r.design.parts) == 2
+    assert r.collisions == []
+
+
+def test_fit_test_hole_strip():
+    from laserpuzzle.pipeline import run
+
+    r = run("fit-test", {"rod_diameter": 3, "hole_first": -0.2, "hole_step": 0.05, "hole_count": 9})
+    strip = next(p for p in r.design.parts if p.name == "Hole strip")
+    diameters = sorted(2 * np.sqrt(Polygon(h).area / np.pi) for h in strip.outline.interiors)
+    assert len(diameters) == 9
+    assert np.allclose(diameters, [2.8 + 0.05 * i for i in range(9)], atol=0.01)
+    assert r.design.stats["hole_offsets"][0] == -0.2
+    assert len(r.design.hardware) == 1
     assert r.collisions == []

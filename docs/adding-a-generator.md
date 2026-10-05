@@ -86,5 +86,7 @@ Update the table in `README.md` and the status in `CLAUDE.md`.
 | `geometry.band_x(g, y0, y1)` | x-intervals of a shape inside a horizontal band (joint placement) |
 | `geometry.rect(x0, y0, x1, y1)` | axis-aligned rectangle (slots) |
 | `design.plane_transform(...)` | any plate orientation |
+| `joints.tab_slot(edge_part, face_part, edge, clearance=c)` | edge of one plate into slots in another (any angle) |
+| `joints.cross_lap(a, b, clearance=c)` | two perpendicular plates slotted halfway into each other |
 | `font.text_lines(text, h, cx, cy, angle)` | engrave arbitrary text as strokes |
 | `mesh.load_model(path, up_axis, flip, height, rotate_z)` | normalised mesh |

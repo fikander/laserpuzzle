@@ -42,6 +42,9 @@ This split is what makes new generators cheap: a generator only produces a `Desi
   - `explode`: world-space offset for the exploded preview (UI multiplies by the slider value).
   - `group`: colour + BOM grouping; `quantity`: identical copies.
 - **Hardware** — bought items (dowels, axles, balls, magnets). Rendered in preview, listed in BOM.
+- **Joints** (`core/joints.py`) — `tab_slot`, `cross_lap`: place the parts first, then call a joint; it
+  edits both outlines in place using the transforms and returns a `Joint` (added/removed shapes, warnings
+  for the generator to pass to `design.warn`).
 - **Design** — parts + hardware + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
 
 ## Coordinate conventions

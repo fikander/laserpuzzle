@@ -7,8 +7,10 @@ needs real joints.
 
 1. **Joint library: `core/joints.py`.** Reusable, tested functions that modify two parts' outlines so they
    meet with zero overlap:
-   - `cross_lap(part_a, part_b)`: generalised half-lap from `stacked-layers`, for any two plates crossing.
-   - `tab_slot(edge_part, face_part, n_tabs)`: tabs on an edge, matching slots in a face (car body panels).
+   - ✅ `cross_lap(a, b, clearance, a_from)`: two perpendicular plates crossing (egg-crate). `stacked-layers`
+     still has its own half-lap code; it could move to this.
+   - ✅ `tab_slot(edge_part, face_part, edge, ...)`: tabs on an edge, matching slots in a face, any angle
+     (car body panels).
    - `finger_joint(part_a, edge_a, part_b, edge_b)`: box corners.
    - `t_slot(..., screw="M3")`: bolt + captive nut, for things you want to take apart.
    - `living_hinge(region, pattern)`: bendable areas (car roofs, curved panels).

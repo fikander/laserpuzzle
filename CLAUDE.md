@@ -23,6 +23,7 @@ src/laserpuzzle/
     params.py      Param declarations -> CLI + UI form + validation; FABRICATION_PARAMS shared by all generators
     design.py      Design / Part / Hardware data model, plane transforms (horizontal, vertical_xz, ...)
     geometry.py    shapely helpers: mesh `section`, `clean`, `kerf_offset`, `band_x`, `rect`
+    joints.py      tab_slot (any angle), cross_lap; edit placed parts' outlines in place, return warnings
     mesh.py        load + normalise meshes (Z up, base on z=0, centred, scaled)
     font.py        single-stroke font for engraved labels (no SVG <text>)
     layout.py      fabricate (kerf + labels) and shelf-nest onto sheets
@@ -63,10 +64,14 @@ subclass with `id`, `name`, `description`, `params`, `generate(v, ctx) -> Design
 - SVG export flips Y (SVG y-down) so parts look as seen from above and engraved text reads correctly.
 - `manifold3d` boolean intersections of exactly touching solids can return degenerate meshes → volume NaN; handled.
 - Shapely `buffer` with `join_style="mitre"` for kerf keeps slot corners sharp; round joins would loosen fits.
+- Joints: position parts first, then call `joints.*`; forward `Joint.warnings` to `design.warn`.
+- Keep the project out of iCloud-synced folders (`~/Documents`, `~/Desktop`): iCloud sets the macOS `hidden`
+  flag on the venv's editable-install `.pth` and Python 3.14 skips hidden `.pth` files (`import laserpuzzle` fails).
 - In this repo, `pawn.stl` is a Y-up sample model (auto up-axis detects it).
 
 ## Status / next steps
 
-Done: core pipeline, `stacked-layers` (spine half-lap + dowel/spacers), `fit-test`, web UI with 3D + sheet preview.
-Next (see `docs/roadmap.md`): joint library (`core/joints.py`: tab-slot, finger, T-slot, cross-lap), better
-nesting, car generator from 3 orthographic views, humanoid, mechanisms, marble run.
+Done: core pipeline, `stacked-layers` (spine half-lap + dowel/spacers), `fit-test` (slot comb + rod hole strip),
+`core/joints.py` (tab_slot, cross_lap), web UI with 3D + sheet preview.
+Next: parametric `vehicle` generator (push toy for a 3-year-old: 3 mm ply, 3 mm steel axles, scale 1:N with
+toy proportions, blind hub caps, glued). Then finger/T-slot joints, living hinge, better nesting (`docs/roadmap.md`).
