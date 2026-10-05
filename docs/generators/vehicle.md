@@ -26,6 +26,34 @@ hood                    boot |  ← rear
 - **Wheels**: hub spacer + inner layer + (optional) narrower middle layer forming a groove for an O-ring tyre +
   **outer cap with no hole**, all glued onto the rod (press fit). No rod end is exposed.
 
+## Trailers and the hitch
+
+Trailer presets: `trailer-box` (open-top utility box with plank engraving), `trailer-flatbed` (low deck with a
+headboard, wide enough to carry a toy car), `trailer-container` (20 ft container with corrugation and rear
+doors, tandem axle), `trailer-caravan` (windows and door). Trailers have one axle (or a tandem) behind the
+middle and a **support foot** under the front, so an unhitched trailer stands almost level.
+
+**Hitch standard** (same for every vehicle cut from the same sheet thickness):
+
+```
+ car  ── floor ──┐                         ┌── floor ── trailer
+                 └─ tongue ─[peg]           │
+                            (ring)─drawbar──┘   drawbar glued on the trailer's floor tongue
+```
+
+- Towing (`rear_hitch`, default on for every preset, trailers too, so they chain): the floor extends
+  backwards as a 10 mm tongue with an upright **peg**, a small plate (8 mm × 2t+3 mm) with a rounded top, tabbed
+  through the tongue.
+- Towed (trailers): the floor extends forwards; a **drawbar** plate glued on top of it ends in a **ring** (hole =
+  peg diagonal + 1.5 mm) that drops over the peg and rests on the tongue. The ring is circular, so the trailer
+  swings freely; the drawbar is long enough for ±35° before the bodies touch (checked by a test that couples
+  cars and trailers in 3D at 0° and ±35°).
+- `hitch_height` (default 8 mm, top of the tongue) fixes the floor height of **every** vehicle at
+  `hitch_height - thickness`, so coupled vehicles sit level. When the wheels are automatic, they grow if needed
+  to leave room for the axle above that floor. Use the same `hitch_height` and sheet for everything that should
+  couple.
+- No magnets: small neodymium magnets are a serious swallowing hazard for under-3s.
+
 ## Scale and proportions
 
 Presets store real-world sizes (mm) of a typical car of each type: `sedan`, `hatchback`, `sports`, `jeep`,
@@ -66,7 +94,8 @@ Wheels and small parts are a choking hazard for under-3s if they come off: check
 ## Limitations / ideas
 
 - Sides are parallel (no taper in plan view) and the body is a single box: no separate cab/box for trucks,
-  no open pickup bed.
+  no open pickup bed. Open-top trailers work because a profile segment can be marked `"open"` (no panel).
+- The UI previews one vehicle at a time; coupling is only checked in tests.
 - Wheels are always outside the body (toy style).
 - Possible next: living-hinge roof (one bent strip instead of separate panels), custom profile input
   (points or SVG), steering front axle, spine-and-ribs (`cross_lap`) body variant.

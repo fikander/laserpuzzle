@@ -34,8 +34,9 @@ from dataclasses import dataclass
 import numpy as np
 from shapely import affinity
 from shapely.geometry import LineString, Point, Polygon, box
+from shapely.ops import unary_union
 
-from ..core.design import Design, Hardware, Part, plane_transform
+from ..core.design import Design, Hardware, Part, horizontal, plane_transform, vertical_xz
 from ..core.geometry import BIG, as_lines, as_polygons, clean, rect
 from ..core.joints import tab_slot
 from ..core.params import Param, Values
@@ -53,7 +54,7 @@ PRESETS: dict[str, dict] = {
                       windows=2, top=[("front", 0, 720), ("hood", 1000, 880), ("windscreen", 1700, 1460),
                                       ("roof", 3350, 1470), ("hatch", 4100, 1000), ("rear", 4100, 180)]),
     "sports": dict(length=4400, width=1900, wheel=660, front_axle=950, wheelbase=2500, floor=120, doors=1,
-                   windows=1, top=[("front", 0, 600), ("hood", 1600, 850), ("windscreen", 2300, 1180),
+                   windows=1, top=[("front", 0, 680), ("hood", 1600, 870), ("windscreen", 2300, 1180),
                                    ("roof", 2900, 1200), ("rear window", 3900, 950), ("boot", 4400, 900),
                                    ("rear", 4400, 120)]),
     "jeep": dict(length=4300, width=1850, wheel=760, front_axle=800, wheelbase=2500, floor=260, doors=2,
@@ -69,11 +70,73 @@ PRESETS: dict[str, dict] = {
     "bus": dict(length=10000, width=2500, wheel=1000, front_axle=2200, wheelbase=5500, floor=350, doors=0,
                 windows=7, top=[("front", 0, 1300), ("windscreen", 150, 2900), ("roof", 9900, 3000),
                                 ("rear", 10000, 350)]),
+    # Trailers: one axle (wheelbase 0) or tandem, drawbar in front. "open" segments get no panel.
+    "trailer-box": dict(kind="trailer", length=2500, width=1600, wheel=650, front_axle=1400, wheelbase=0,
+                        floor=450, doors=0, windows=0, side_lines=("h", 4.0),
+                        top=[("front", 0, 950), ("top", 2500, 950, "open"), ("rear", 2500, 450)]),
+    "trailer-flatbed": dict(kind="trailer", length=5000, width=3000, wheel=650, front_axle=3000, wheelbase=1000,
+                            floor=400, doors=0, windows=0,
+                            top=[("headboard", 0, 1400), ("headboard top", 500, 1400),
+                                 ("headboard back", 500, 750), ("deck", 5000, 750), ("rear", 5000, 400)]),
+    "trailer-container": dict(kind="trailer", length=6100, width=2440, wheel=800, front_axle=4300, wheelbase=1300,
+                              floor=500, doors=0, windows=0, side_lines=("v", 2.5),
+                              top=[("front", 0, 2900), ("roof", 6100, 2900), ("rear", 6100, 500)]),
+    "trailer-caravan": dict(kind="trailer", length=5500, width=2200, wheel=650, front_axle=3100, wheelbase=0,
+                            floor=400, doors=1, windows=3, belt=1300,
+                            top=[("front", 0, 900), ("front window", 450, 2300), ("roof", 5100, 2400),
+                                 ("roof back", 5500, 2100), ("rear", 5500, 400)]),
 }
 
 TOY_WHEEL = 1.35          # wheel enlargement in toy proportions
+TURN = math.radians(35)   # trailer may swing this far either way without bodies touching
 AXLE_GAP = 1.5            # rod surface to floor top
 WHEEL_GAP = 0.5           # hub spacer to side plate (axial play)
+
+
+@dataclass(frozen=True)
+class Hitch:
+    """Coupling standard shared by every vehicle cut from the same sheet thickness.
+
+    Towing vehicle: the floor extends backwards as a tongue carrying an upright peg (a small
+    plate tabbed through the tongue). Trailer: the floor extends forwards and a drawbar plate
+    glued on top of it ends in a ring that drops over the peg and rests on the tongue.
+    """
+
+    t: float
+    peg_w: float = 8.0           # peg length along the vehicle
+    tongue_w: float = 10.0
+    drawbar_w: float = 12.0
+    wall: float = 3.0            # wood around the ring hole
+
+    @property
+    def peg_h(self) -> float:    # above the tongue: ring thickness + enough to stay on
+        return 2 * self.t + 3
+
+    @property
+    def ring_hole(self) -> float:
+        return math.hypot(self.peg_w, self.t) + 1.5
+
+    @property
+    def ring_r(self) -> float:
+        return self.ring_hole / 2 + self.wall
+
+    @property
+    def peg_back(self) -> float:  # body rear (profile) to peg centre: the ring clears the rear panel
+        return self.ring_r + 1.5
+
+    @property
+    def keep_out(self) -> float:  # trailer floor stays this far from the peg (tongue end radius + gap)
+        return self.tongue_w / 2 + 1.5
+
+    def drawbar(self, half_width: float, rim: float) -> float:
+        """Trailer front (profile) to peg centre, so the trailer can swing by TURN each way.
+
+        Assumes the towing body is at least 30 mm half-width wide (bodies at this scale are 25-35).
+        """
+        w = max(half_width + rim, 30.0)
+        a = self.peg_back - rim                            # peg to the tow vehicle's outer rear
+        b = (w * math.sin(TURN) - a + 1.0) / math.cos(TURN) + rim
+        return max(b, 20.0)
 
 
 @dataclass
@@ -143,6 +206,14 @@ class Vehicle(Generator):
         Param("windows", "choice", "engrave", "Windows", choices=["engrave", "cut", "none"], group="Body"),
         Param("details", "bool", True, "Engraved details",
               help="Doors, wheel arches, lights, grille.", group="Body"),
+        Param("rear_hitch", "bool", True, "Tow hitch at the rear",
+              help="Peg on a tongue behind the vehicle; a trailer's drawbar ring drops over it.", group="Hitch"),
+        Param("hitch_height", "float", 8.0, "Hitch height", unit="mm", min=4, max=40, step=0.5,
+              help="Top of the tongue above the ground. Use the same value (and sheet) for everything "
+                   "that should couple: it fixes the floor height.", group="Hitch"),
+        Param("support_foot", "bool", True, "Trailer support foot",
+              help="Trailers: a small foot under the front so an unhitched trailer stands nearly level.",
+              group="Hitch"),
     ]
 
     # ------------------------------------------------------------------ main
@@ -153,37 +224,55 @@ class Vehicle(Generator):
         N = pr["length"] / v.length if v.length > 0 else v.scale
         rod = v.rod_diameter
 
+        trailer = pr.get("kind") == "trailer"
+        hitched = trailer or v.rear_hitch
         W = v.width if v.width > 0 else pr["width"] / N
-        D = v.wheel_diameter if v.wheel_diameter > 0 else pr["wheel"] / N * (TOY_WHEEL if v.toy_proportions else 1)
+        lo = v.rim + 2.0                                  # side plates clear the ground
+        # Couplable vehicles share one floor height: the tongue (floor extension) top is at hitch_height.
+        z_want = v.hitch_height - t if hitched else pr["floor"] / N
+        d_floor = 2 * (max(z_want, lo) + t + AXLE_GAP + rod / 2)   # smallest wheel with the axle above that floor
+        if v.wheel_diameter > 0:
+            D = v.wheel_diameter
+        else:
+            D = pr["wheel"] / N * (TOY_WHEEL if v.toy_proportions else 1)
+            if hitched and D < d_floor:
+                D = d_floor
         R = D / 2
         z_axle = R
-        # Floor: as close to scale as possible, between "side plates clear the ground"
-        # and "axle runs above the floor".
-        lo = v.rim + 2.0
-        hi = z_axle - rod / 2 - AXLE_GAP - t
+        hi = z_axle - rod / 2 - AXLE_GAP - t              # axle runs above the floor
         if hi < lo:
             need = 2 * (lo + t + AXLE_GAP + rod / 2)
             raise ValueError(f"wheels (Ø{D:.1f} mm) are too small to run a Ø{rod:g} mm axle above the floor; "
                              f"use wheels of at least Ø{need:.1f} mm or turn on toy proportions")
-        z_floor = min(max(pr["floor"] / N, lo), hi)
+        z_floor = min(max(z_want, lo), hi)
+        if hitched and abs(z_floor - z_want) > 1e-6:
+            d.warn(f"Floor can't be at hitch height - {t:g} mm ({z_want:.1f} mm), it is at {z_floor:.1f} mm: "
+                   "coupled vehicles won't sit level. Change wheel diameter or hitch height.")
         if W < 4 * t + 10:
             raise ValueError(f"body is too narrow ({W:.1f} mm)")
 
         L = pr["length"] / N
         xm = lambda x_real: (pr["length"] / 2 - x_real) / N            # noqa: E731  front at +X
         pts = [np.array([xm(0), z_floor])]
-        names = []
-        for name, x, z in pr["top"]:
+        names, open_ = [], set()
+        for name, x, z, *flags in pr["top"]:
             pts.append(np.array([xm(x), z_floor if z == pr["floor"] else z / N]))
             names.append(name)
+            if "open" in flags:
+                open_.add(name)
         names.append("floor")
         profile = Polygon([tuple(p) for p in pts])
-        belt = next((pts[i][1] for i, nm in enumerate(names) if nm == "windscreen"), None)
-        axles = [xm(pr["front_axle"]), xm(pr["front_axle"] + pr["wheelbase"])]
+        if "belt" in pr:
+            belt = pr["belt"] / N
+        else:
+            belt = next((pts[i][1] for i, nm in enumerate(names) if nm == "windscreen"), None)
+        axles = [xm(pr["front_axle"])] + ([xm(pr["front_axle"] + pr["wheelbase"])] if pr["wheelbase"] else [])
+        if len(axles) == 2 and abs(axles[0] - axles[1]) < D + 2:
+            d.warn("Wheels on neighbouring axles touch - reduce wheel diameter.")
 
-        panels = self._panels(pts, names, t)
-        if any(p.s1 - p.s0 < 2 * t for p in panels):
-            short = [p.name for p in panels if p.s1 - p.s0 < 2 * t]
+        panels = self._panels(pts, names, t, open_)
+        if any(p.s1 - p.s0 < 2 * t for p in panels if p.name not in open_):
+            short = [p.name for p in panels if p.s1 - p.s0 < 2 * t and p.name not in open_]
             d.warn(f"Very short panel(s): {', '.join(short)} - tabs will be weak. Use a larger scale.")
 
         # ---- side plates (built in world XZ, then placed)
@@ -200,7 +289,9 @@ class Vehicle(Generator):
         elif v.windows == "engrave":
             engr += [l for w in win_shapes for l in as_lines(w)]
         if v.details:
-            engr += self._side_details(side, win_shapes, pr["doors"], belt, z_floor + t, axles, R, v.rim)
+            engr += self._side_details(side, win_shapes, pr["doors"], belt, z_floor + t, axles, R)
+            if "side_lines" in pr:
+                engr += self._side_lines(profile, pr["side_lines"], v.rim + t + 1.0, z_floor + t, axles, R)
         for xa in axles:
             side = side.difference(Point(xa, z_axle).buffer(run_r, quad_segs=24))
         side = clean(side)
@@ -220,12 +311,18 @@ class Vehicle(Generator):
         d.parts += sides
 
         # ---- body panels
+        floor_part = None
         for p in panels:
+            if p.name in open_:
+                continue
             origin = p.a - p.n * t
             tf = plane_transform((origin[0], -Wi / 2, origin[1]), (0, 1, 0), (p.u[0], 0, p.u[1]))
             part = Part(p.name.capitalize(), rect(0, p.s0, Wi, p.s1), t, tf,
-                        engrave=self._panel_details(p, Wi, v) if v.details or v.windows == "engrave" else [],
+                        engrave=self._panel_details(p, Wi, v, pr) if v.details or v.windows == "engrave" else [],
                         group="panel", explode=(15 * p.n[0], 0.0, 15 * p.n[1]))
+            if p.name == "floor":
+                floor_part = part
+                part.outline = self._tongues(part.outline, p, Wi, t, W, v, trailer, d)
             d.parts.append(part)
             lp = p.s1 - p.s0
             margin = min(t, 0.2 * lp)
@@ -235,8 +332,11 @@ class Vehicle(Generator):
                 for w in j.warnings:
                     d.warn(w)
 
-        # ---- bearing pads
+        # ---- hitch
         floor_top = z_floor + t
+        self._hitch_parts(d, floor_part, pts[0][0], v, trailer, t, floor_top)
+
+        # ---- bearing pads
         pw = rod + 8
         pad_top = z_axle + rod / 2 + 4
         interior = profile.buffer(-t, join_style="mitre", mitre_limit=3.0)
@@ -244,7 +344,7 @@ class Vehicle(Generator):
             if not interior.contains(Point(xa, z_axle).buffer(rod / 2 + 0.5)):
                 d.warn(f"Axle at x={xa:.1f} mm runs into a body panel - use smaller wheels or a taller body.")
         if v.bearing_pads:
-            for xa in axles:
+            for ai, xa in enumerate(axles):
                 pad = rect(xa - pw / 2, floor_top, xa + pw / 2, pad_top).intersection(interior)
                 if not pad.buffer(1e-6).contains(Point(xa, z_axle).buffer(run_r + 1.0)):
                     d.warn(f"Bearing pad at x={xa:.1f} mm is cut short by the body - little wood around the hole.")
@@ -257,7 +357,7 @@ class Vehicle(Generator):
                                 (0, y_in, 0), (-1, 0, 0), (0, 0, 1))
                         else:
                             o, tf = pad, plane_transform((0, -y_in, 0), (1, 0, 0), (0, 0, 1))
-                        d.parts.append(Part(f"Bearing pad {'F' if xa > 0 else 'R'}{'R' if s > 0 else 'L'}{k + 1}",
+                        d.parts.append(Part(f"Bearing pad {ai + 1}{'R' if s > 0 else 'L'}{k + 1}",
                                             o, t, tf, label="B", group="bearing",
                                             explode=(0.0, -s * 8 * (k + 1), 0.0)))
 
@@ -266,7 +366,7 @@ class Vehicle(Generator):
         y = W / 2 + WHEEL_GAP
         rod_end = y
         for li, (name, outline, has_hole) in enumerate(layers):
-            for xa in axles:
+            for ai, xa in enumerate(axles):
                 for s in (-1, 1):
                     if s > 0:
                         tf = plane_transform((xa, y, z_axle), (-1, 0, 0), (0, 0, 1))
@@ -274,7 +374,7 @@ class Vehicle(Generator):
                         tf = plane_transform((xa, -y, z_axle), (1, 0, 0), (0, 0, 1))
                     cap = name == "Wheel cap"
                     d.parts.append(Part(
-                        f"{name} {'F' if xa > 0 else 'R'}{'R' if s > 0 else 'L'}", outline, t, tf,
+                        f"{name} {ai + 1}{'R' if s > 0 else 'L'}", outline, t, tf,
                         engrave=self._hubcap(R) if cap and v.details else [],
                         label=None if cap else name.split()[-1][0].upper(),
                         group="hub" if name == "Hub spacer" else "wheel",
@@ -317,12 +417,12 @@ class Vehicle(Generator):
         })
         if v.toy_proportions:
             d.stats["note"] = "toy proportions (wheels not to scale)"
-        d.notes += self._assembly(v, rod_len, groove, D)
+        d.notes += self._assembly(v, rod_len, groove, D, len(axles), trailer)
         return d
 
     # --------------------------------------------------------------- panels
     @staticmethod
-    def _panels(pts: list[np.ndarray], names: list[str], t: float) -> list[Panel]:
+    def _panels(pts: list[np.ndarray], names: list[str], t: float, open_: set[str] = frozenset()) -> list[Panel]:
         n = len(pts)
         # Orientation: the loop runs front -> over the roof -> rear -> floor, i.e. clockwise
         # when seen with X right and Z up, so the right-hand normal (u.z, -u.x) points outward.
@@ -336,7 +436,9 @@ class Vehicle(Generator):
             panels.append(Panel(names[i], a, u, np.array([u[1], -u[0]]), ln, 0.0, ln))
         for i in range(n):
             a, b = panels[i], panels[(i + 1) % n]          # crease at the end of a / start of b
-            win, lose = (a, b) if a.length >= b.length else (b, a)
+            la = 0.0 if a.name in open_ else a.length     # an open side never wins: its neighbour runs to the corner
+            lb = 0.0 if b.name in open_ else b.length
+            win, lose = (a, b) if la >= lb else (b, a)
             strip = lose.section(t, -BIG, BIG)
             inter = win.section(t, 0.0, win.length).intersection(strip).intersection(
                 Point(*b.a).buffer(6 * t))
@@ -354,7 +456,7 @@ class Vehicle(Generator):
         return panels
 
     @staticmethod
-    def _panel_details(p: Panel, Wi: float, v: Values) -> list[LineString]:
+    def _panel_details(p: Panel, Wi: float, v: Values, pr: dict) -> list[LineString]:
         lp = p.s1 - p.s0
         out: list[LineString] = []
 
@@ -369,7 +471,8 @@ class Vehicle(Generator):
             out += rbox(m, p.s0 + m, Wi - m, p.s1 - m, 1.0)
         if not v.details or lp < 6:
             return out
-        if p.name == "front":                       # local y runs upward
+        trailer = pr.get("kind") == "trailer"
+        if p.name == "front" and not trailer:       # local y runs upward
             top, h = p.s1, lp
             lw = 0.22 * Wi
             for x0 in (0.08 * Wi, Wi - 0.08 * Wi - lw):
@@ -379,6 +482,13 @@ class Vehicle(Generator):
                 yy = top - (0.25 + 0.12 * k) * h
                 out.append(LineString([(gx0, yy), (gx1, yy)]))
             out.append(LineString([(0.04 * Wi, p.s0 + 0.18 * h), (0.96 * Wi, p.s0 + 0.18 * h)]))  # bumper
+        elif p.name == "rear" and pr.get("side_lines", ("",))[0] == "v":   # container doors
+            top, h = p.s0, lp
+            out.append(LineString([(Wi / 2, top + 1.5), (Wi / 2, top + h - 1.5)]))
+            for f in (0.15, 0.35, 0.65, 0.85):
+                out.append(LineString([(f * Wi, top + 2.5), (f * Wi, top + h - 2.5)]))
+            for f in (0.1, 0.6):
+                out += rbox(f * Wi, top + 0.45 * h, (f + 0.3) * Wi, top + 0.55 * h, 0.3)
         elif p.name == "rear":                      # local y runs downward from the top
             top, h = p.s0, lp
             lw = 0.18 * Wi
@@ -409,13 +519,13 @@ class Vehicle(Generator):
         return sorted(out, key=lambda w: -w.bounds[2])       # front first
 
     @staticmethod
-    def _side_details(side, windows, doors, belt, floor_top, axles, R, rim) -> list[LineString]:
+    def _side_details(side, windows, doors, belt, floor_top, axles, R) -> list[LineString]:
         out: list[LineString] = []
         inner = side.buffer(-1.0)
         arches = [Point(xa, R).buffer(R + 1.5, quad_segs=32) for xa in axles]
         for a in arches:                                    # wheel arch: upper half only
             out += as_lines(a.exterior.intersection(inner).intersection(rect(-BIG, R, BIG, BIG)))
-        inner = inner.difference(arches[0].union(arches[1]))       # door lines stop at the arches
+        inner = inner.difference(unary_union(arches))       # door lines stop at the arches
         if doors and windows and belt is not None:
             edges = [windows[0].bounds[2] + 1.0]
             for k in range(doors):
@@ -430,6 +540,81 @@ class Vehicle(Generator):
                 out += as_lines(LineString([(x_rear + 2.0, belt - 2.5), (x_rear + 5.0, belt - 2.5)])
                                 .intersection(inner))
         return out
+
+    @staticmethod
+    def _side_lines(profile, spec, inset, floor_top, axles, R) -> list[LineString]:
+        """Planks ("h") or container corrugation ("v") engraved on the sides."""
+        kind, pitch = spec
+        area = profile.buffer(-inset, join_style="mitre", mitre_limit=3.0).intersection(
+            rect(-BIG, floor_top + 1.0, BIG, BIG))
+        area = area.difference(unary_union([Point(xa, R).buffer(R + 2.5) for xa in axles]))
+        if area.is_empty:
+            return []
+        x0, z0, x1, z1 = area.bounds
+        out: list[LineString] = []
+        if kind == "v":
+            out += as_lines(area.boundary)
+            xs = np.arange(x0 + pitch, x1 - pitch / 2, pitch)
+            for x in xs:
+                out += as_lines(LineString([(x, z0 - 1), (x, z1 + 1)]).intersection(area))
+        else:
+            for z in np.arange(z0 + pitch, z1 - pitch / 2, pitch):
+                out += as_lines(LineString([(x0 - 1, z), (x1 + 1, z)]).intersection(area))
+        return out
+
+    # ---------------------------------------------------------------- hitch
+    @staticmethod
+    def _tongues(outline, p: Panel, Wi: float, t: float, W: float, v: Values, trailer: bool, d: Design):
+        """Extend the floor panel (local y = along from the rear) with the hitch tongues."""
+        h = Hitch(t)
+        c = Wi / 2
+        if p.s0 > 1e-6 or p.s1 < p.length - 1e-6:
+            raise ValueError("floor must run the full length for a hitch - is the profile unusual?")
+        if v.rear_hitch:
+            yp = -h.peg_back
+            outline = outline.union(rect(c - h.tongue_w / 2, yp, c + h.tongue_w / 2, 0.0)).union(
+                Point(c, yp).buffer(h.tongue_w / 2, quad_segs=16))
+            d.stats["hitch_rear_x"] = round(float(p.a[0]) + yp, 3)
+        if trailer:
+            b = h.drawbar(W / 2, v.rim)
+            outline = outline.union(rect(c - h.tongue_w / 2, p.length, c + h.tongue_w / 2,
+                                         p.length + b - h.keep_out))
+            d.stats["hitch_front_x"] = round(float(p.a[0]) + p.length + b, 3)
+        return clean(outline)
+
+    @staticmethod
+    def _hitch_parts(d: Design, floor: Part, x_front: float, v: Values, trailer: bool, t: float,
+                     top: float) -> None:
+        h = Hitch(t)
+        if v.rear_hitch:
+            xp = d.stats["hitch_rear_x"]
+            x0, x1 = xp - h.peg_w / 2, xp + h.peg_w / 2
+            r = 2.0
+            peg = rect(x0, top, x1, top + h.peg_h).buffer(-r).buffer(r, quad_segs=8).union(
+                rect(x0, top, x1, top + r))
+            part = Part("Hitch peg", peg, t, vertical_xz(0.0, t), group="hitch", explode=(-10.0, 0.0, 12.0))
+            j = tab_slot(part, floor, ((x0, top), (x1, top)), clearance=v.clearance, n_tabs=1,
+                         tab_width=h.peg_w - 2, margin=1.0, min_bridge=1.0)
+            d.warnings += j.warnings
+            d.parts.append(part)
+        if trailer:
+            xp = d.stats["hitch_front_x"]
+            bar = rect(x_front, -h.drawbar_w / 2, xp, h.drawbar_w / 2).union(
+                Point(xp, 0).buffer(h.ring_r, quad_segs=32)).difference(
+                Point(xp, 0).buffer(h.ring_hole / 2, quad_segs=32))
+            d.parts.append(Part("Drawbar", bar, t, horizontal(top), group="hitch", explode=(12.0, 0.0, 8.0)))
+            if v.support_foot:
+                z_bottom = 1.5
+                x0, x1 = x_front - 11.0, x_front - 3.0
+                if top - t - z_bottom < 2.0:
+                    d.warn("Floor too low for a support foot - skipped.")
+                else:
+                    foot = Part("Support foot", rect(x0, z_bottom, x1, top - t), t, vertical_xz(0.0, t),
+                                group="hitch", explode=(0.0, 0.0, -10.0))
+                    j = tab_slot(foot, floor, ((x0, top - t), (x1, top - t)), clearance=v.clearance, n_tabs=1,
+                                 tab_width=4.0, margin=2.0)
+                    d.warnings += j.warnings
+                    d.parts.append(foot)
 
     # --------------------------------------------------------------- wheels
     @staticmethod
@@ -466,18 +651,16 @@ class Vehicle(Generator):
                 inner_x = (p.a - p.n * t)[0]
                 if abs(inner_x - xa) < pw / 2 + 0.5:
                     d.warn(f"Axle at x={xa:.1f} is too close to the {p.name} panel - shorten the overhang.")
-        if D + 2 > abs(axles[0] - axles[1]):
-            d.warn("Wheels overlap each other - reduce wheel diameter.")
         if W < 3 * rod + 20:
             d.warn("Body is narrow: the axles will wobble. Add bearing pads or widen the body.")
 
     @staticmethod
-    def _assembly(v: Values, rod_len: float, groove: bool, D: float) -> list[str]:
+    def _assembly(v: Values, rod_len: float, groove: bool, D: float, n_axles: int, trailer: bool) -> list[str]:
         rod = v.rod_diameter
         notes = [
             "Do a fit test first (generator 'fit-test', hole strip with your rod) and enter the press-fit and "
             "running-fit offsets under Axles.",
-            f"Cut 2 rods Ø{rod:g} mm to {rod_len:.1f} mm (cut-off wheel or hacksaw). File the ends smooth "
+            f"Cut {n_axles} rod{'s' if n_axles > 1 else ''} Ø{rod:g} mm to {rod_len:.1f} mm (cut-off wheel or hacksaw). File the ends smooth "
             "and scuff 10 mm at each end with sandpaper so the glue grips.",
         ]
         if v.bearing_pads:
@@ -492,6 +675,15 @@ class Vehicle(Generator):
             "Pass the rod through the body, slide the second wheel on with a strip of paper between each hub "
             "spacer and the side (axial play), and glue it the same way. Remove the paper.",
         ]
+        if v.rear_hitch:
+            notes.append("Hitch peg: push its tab into the slot at the end of the floor tongue (rounded end up) "
+                         "and glue it. It takes the pulling, so let the glue cure fully.")
+        if trailer:
+            notes.append("Drawbar: glue it on top of the floor tongue, ring forward, butted against the front panel. "
+                         + ("Glue the support foot into the slot under the front of the floor. " if v.support_foot
+                            else "")
+                         + f"Couple: drop the ring over a peg. Every vehicle made with hitch height "
+                           f"{v.hitch_height:g} mm and the same sheet thickness fits every trailer.")
         if groove:
             notes.append(f"Optional tyres: O-rings in the wheel groove (inner Ø ≈ {D - 2 * v.groove_depth - 1:.0f}"
                          " mm) or wrapped rubber bands.")
