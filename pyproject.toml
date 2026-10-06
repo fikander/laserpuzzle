@@ -5,17 +5,20 @@ description = "Generate laser-cut 3D puzzles (flat parts that assemble into 3D o
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    # Native-only packages carry `sys_platform != "emscripten"` so the wheel also installs in
+    # Pyodide (browser). There the collision check uses manifold's WASM build instead (core/validate.py)
+    # and the local web UI (fastapi/uvicorn) isn't used.
     "numpy>=1.24",
     "trimesh>=4.0",
     "shapely>=2.0",
-    "mapbox-earcut>=1.0",   # triangulation for trimesh.extrude_polygon
-    "manifold3d>=2.4",      # boolean ops for collision checks
+    "mapbox-earcut>=1.0; sys_platform != 'emscripten'",   # triangulation for trimesh.extrude_polygon
+    "manifold3d>=2.4; sys_platform != 'emscripten'",      # boolean ops for collision checks
     "networkx>=3.0",        # trimesh graph helpers
-    "rtree>=1.0",
+    "rtree>=1.0; sys_platform != 'emscripten'",
     "ezdxf>=1.1",
-    "fastapi>=0.110",
-    "uvicorn>=0.27",
-    "python-multipart>=0.0.9",
+    "fastapi>=0.110; sys_platform != 'emscripten'",
+    "uvicorn>=0.27; sys_platform != 'emscripten'",
+    "python-multipart>=0.0.9; sys_platform != 'emscripten'",
 ]
 
 [project.optional-dependencies]

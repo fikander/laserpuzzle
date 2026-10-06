@@ -28,7 +28,7 @@ src/laserpuzzle/
     font.py        single-stroke font for engraved labels (no SVG <text>)
     layout.py      fabricate (kerf + labels) and shelf-nest onto sheets
     export.py      SVG (red=cut, blue=engrave, mm) and DXF (CUT/ENGRAVE layers)
-    validate.py    3D collision check between extruded parts (manifold3d)
+    validate.py    3D collision check between extruded parts (manifold3d; manifold WASM under Pyodide)
   generators/      one module per puzzle type, auto-discovered; base.py = interface + registry
   pipeline.py      run(): generator -> design -> sheets -> collisions; Run.preview()/write()/zip
   cli.py           argparse entry point
