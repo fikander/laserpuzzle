@@ -1,4 +1,8 @@
+import io
+
+import ezdxf
 import numpy as np
+import pytest
 import trimesh
 from shapely.geometry import Polygon, box
 
@@ -6,6 +10,7 @@ from laserpuzzle.core import font, layout
 from laserpuzzle.core.design import Part, horizontal, vertical_xz
 from laserpuzzle.core.geometry import band_x, kerf_offset, section
 from laserpuzzle.core.params import FABRICATION_PARAMS, Param, coerce_values
+from laserpuzzle.pipeline import run
 
 
 def test_kerf_grows_outline_and_shrinks_holes():
@@ -89,3 +94,39 @@ def test_fit_test_hole_strip():
     assert r.design.stats["hole_offsets"][0] == -0.2
     assert len(r.design.hardware) == 1
     assert r.collisions == []
+
+
+def test_color_param_coerce():
+    p = Param("c", "color", "#ff0000")
+    assert p.coerce("") == "#ff0000"
+    assert p.coerce("00FF00") == "#00ff00"
+    assert p.coerce(" #FFFF00 ") == "#ffff00"
+    with pytest.raises(ValueError):
+        p.coerce("red")
+
+
+def _dxf_layers(r):
+    return ezdxf.read(io.StringIO(r.dxf(0).decode())).layers
+
+
+def test_line_colours_reach_svg_and_dxf():
+    r = run("fit-test", {"cut_color": "#000000", "engrave_color": "#ffff00"})
+    svg = r.svg(0)
+    assert 'stroke="#000000"' in svg and 'stroke="#ffff00"' in svg and "#ff0000" not in svg
+    assert 'stroke="#ffff00"' in r.preview()["sheets"][0]["svg"]
+    layers = _dxf_layers(r)
+    assert layers.get("ENGRAVE").color == 2 and layers.get("ENGRAVE").rgb == (255, 255, 0)
+    assert layers.get("CUT").rgb == (0, 0, 0)
+    assert not any("colours are the same" in w for w in r.warnings)
+
+
+def test_same_line_colours_warn():
+    r = run("fit-test", {"engrave_color": "#FF0000"})
+    assert any("colours are the same" in w for w in r.warnings)
+
+
+def test_default_line_colours():
+    r = run("fit-test", {})
+    assert 'stroke="#ff0000"' in r.svg(0) and 'stroke="#0000ff"' in r.svg(0)
+    layers = _dxf_layers(r)
+    assert layers.get("CUT").color == 1 and layers.get("ENGRAVE").color == 5

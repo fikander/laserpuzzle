@@ -36,11 +36,15 @@ class Run:
     timings: dict[str, float] = field(default_factory=dict)
 
     # ---------------------------------------------------------------- files
+    def colors(self) -> dict[str, str]:
+        return {"cut_color": self.params.get("cut_color", export.CUT_COLOR),
+                "engrave_color": self.params.get("engrave_color", export.ENGRAVE_COLOR)}
+
     def svg(self, i: int, show_sheet: bool = False) -> str:
-        return export.sheet_svg(self.sheets[i], show_sheet=show_sheet)
+        return export.sheet_svg(self.sheets[i], show_sheet=show_sheet, **self.colors())
 
     def dxf(self, i: int) -> bytes:
-        return export.sheet_dxf(self.sheets[i])
+        return export.sheet_dxf(self.sheets[i], **self.colors())
 
     def summary(self) -> dict:
         return {
@@ -112,7 +116,7 @@ class Run:
             "parts": parts,
             "hardware": hardware,
             "sheets": [{"index": s.index, "width": s.width, "height": s.height, "count": len(s.items),
-                        "svg": export.sheet_svg(s, show_sheet=True),
+                        "svg": export.sheet_svg(s, show_sheet=True, **self.colors()),
                         "utilisation": round(s.used_area() / (s.width * s.height), 3)} for s in self.sheets],
             "has_mesh": self.design.source_mesh is not None,
             **self.summary(),
@@ -149,6 +153,8 @@ def run(generator_id: str, raw_params: dict[str, Any], workdir: str | Path = "."
     t3 = time.perf_counter()
 
     warnings = list(design.warnings) + nest_warnings
+    if values["cut_color"] == values["engrave_color"]:
+        warnings.append("Cut and engrave colours are the same - laser software can't tell cuts from engraving.")
     if collisions:
         warnings.append(f"{len(collisions)} part pair(s) overlap in 3D - see collisions.")
     return Run(

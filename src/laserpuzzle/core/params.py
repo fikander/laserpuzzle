@@ -8,10 +8,12 @@ Generators declare a list of `Param`s. The same declarations drive:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
-KINDS = {"float", "int", "bool", "choice", "str", "file"}
+KINDS = {"float", "int", "bool", "choice", "str", "file", "color"}
+_HEX = re.compile(r"#?([0-9a-fA-F]{6})")
 
 
 @dataclass
@@ -54,6 +56,11 @@ class Param:
             if self.choices and v not in self.choices:
                 raise ValueError(f"{self.name}: {v!r} not in {self.choices}")
             return v
+        elif k == "color":
+            m = _HEX.fullmatch(str(value).strip())
+            if not m:
+                raise ValueError(f"{self.name}: {value!r} is not a #rrggbb colour")
+            return "#" + m[1].lower()
         else:
             return str(value)
         if self.min is not None and v < self.min:
@@ -115,4 +122,9 @@ FABRICATION_PARAMS: list[Param] = [
           help="Gap between nested parts on the sheet.", group=FAB),
     Param("labels", "bool", True, "Engrave part labels",
           help="Engrave small part numbers to help assembly.", group=FAB),
+    Param("cut_color", "color", "#ff0000", "Cut line colour",
+          help="Colour of cut lines in SVG/DXF. There is no universal standard: match what your laser shop or "
+               "software setup expects.", group=FAB),
+    Param("engrave_color", "color", "#0000ff", "Engrave line colour",
+          help="Colour of engraved (line/score) strokes in SVG/DXF. Must differ from the cut colour.", group=FAB),
 ]
