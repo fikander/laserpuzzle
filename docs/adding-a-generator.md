@@ -77,6 +77,22 @@ Use synthetic meshes (`trimesh.creation`) rather than large files.
 Add `docs/generators/<id>.md`: what it makes, parameters worth tuning, assembly, limitations.
 Update the table in `README.md` and the status in `CLAUDE.md`.
 
+## Generators in a separate package (plugins)
+
+A generator doesn't have to live in this repo. Any installed package can contribute generators through the
+`laserpuzzle.generators` entry point group; the value is a module that is imported, so its `@register`
+decorators run:
+
+```toml
+# pyproject.toml of your package
+[project.entry-points."laserpuzzle.generators"]
+my-plugin = "my_plugin.generators"      # a module; import it to register its generators
+```
+
+After `pip install -e .` the generators appear in `laserpuzzle list`, the CLI and the UI like built-in ones.
+Ids must be unique: registering an id that another generator class already uses raises `ValueError`.
+A plugin that fails to import produces a warning and is skipped; built-in generators keep working.
+
 ## Useful core helpers
 
 | Helper | Use |

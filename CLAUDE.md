@@ -75,5 +75,6 @@ subclass with `id`, `name`, `description`, `params`, `generate(v, ctx) -> Design
 Done: core pipeline, `stacked-layers` (spine half-lap + dowel/spacers), `fit-test` (slot comb + rod hole strip),
 `core/joints.py` (tab_slot, cross_lap), `vehicle` (preset side profile -> sides + tabbed panel chain, rod axles,
 laminated wheels with blind caps; push toy for a 3-year-old; trailer presets + peg/ring hitch standard so
-any vehicle tows any trailer), web UI with 3D + sheet preview.
+any vehicle tows any trailer), web UI with 3D + sheet preview, generator plugins from other packages
+(`laserpuzzle.generators` entry points, see `docs/adding-a-generator.md`).
 Next: finger/T-slot joints, living hinge (vehicle roof), better nesting, custom vehicle profiles (`docs/roadmap.md`).

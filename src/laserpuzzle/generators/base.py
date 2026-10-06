@@ -17,7 +17,9 @@ A generator turns inputs (files + parameters) into a `Design`. To add one:
             ...
             return design
 
-Put the module in `laserpuzzle/generators/`; it is auto-imported.
+Put the module in `laserpuzzle/generators/`; it is auto-imported. Generators
+from other installed packages are loaded through the `laserpuzzle.generators`
+entry point group (value = module to import), see docs/adding-a-generator.md.
 Fabrication params (thickness, kerf, clearance, sheet...) are added
 automatically - read them from `v` too.
 """
@@ -26,6 +28,8 @@ from __future__ import annotations
 
 import importlib
 import pkgutil
+import warnings
+from importlib import metadata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
@@ -34,6 +38,7 @@ from ..core.design import Design
 from ..core.params import FABRICATION_PARAMS, Param, Values
 
 _REGISTRY: dict[str, type["Generator"]] = {}
+ENTRY_POINT_GROUP = "laserpuzzle.generators"
 
 
 @dataclass
@@ -75,8 +80,15 @@ class Generator:
 def register(cls: type[Generator]) -> type[Generator]:
     if not cls.id:
         raise ValueError(f"{cls.__name__} has no id")
+    prev = _REGISTRY.get(cls.id)
+    if prev is not None and _qualname(prev) != _qualname(cls):
+        raise ValueError(f"generator id {cls.id!r} of {_qualname(cls)} is already used by {_qualname(prev)}")
     _REGISTRY[cls.id] = cls
     return cls
+
+
+def _qualname(cls: type) -> str:
+    return f"{cls.__module__}.{cls.__qualname__}"
 
 
 def _discover() -> None:
@@ -84,6 +96,14 @@ def _discover() -> None:
     for mod in pkgutil.iter_modules(pkg.__path__):
         if not mod.name.startswith("_") and mod.name != "base":
             importlib.import_module(f"laserpuzzle.generators.{mod.name}")
+    # plugins: importing the module registers its generators. A broken plugin
+    # must not take the built-in generators down with it, so warn and go on.
+    for ep in metadata.entry_points(group=ENTRY_POINT_GROUP):
+        try:
+            ep.load()
+        except Exception as e:
+            warnings.warn(f"laserpuzzle plugin {ep.name!r} ({ep.value}) failed to load: {type(e).__name__}: {e}",
+                          stacklevel=2)
 
 
 _discovered = False
