@@ -52,6 +52,8 @@ docs/              architecture, adding generators, fabrication, per-generator d
 - Parameters: declare with `Param`; group them (`group=`) for the UI. Defaults must generate something sensible.
 - Engraving goes in `Part.engrave` (LineStrings) or `Part.label` (short text, auto-fitted). Cut = red, engrave = blue.
 - Keep the UI build-free (ES modules, importmap). Preview JSON shape is produced only by `Run.preview()`.
+- `app.js` reaches the backend only through `ui/static/api.js` (importmap name `laserpuzzle/api`; interface
+  documented at its top). No direct `fetch("/api/...")` or server-URL links in the UI; downloads go via `api.file()`.
 
 ## Adding a generator
 

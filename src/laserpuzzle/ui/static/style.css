@@ -89,6 +89,7 @@ main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min
 #downloads a { text-decoration: none; color: var(--ink); border: 1px solid var(--line); border-radius: 6px; padding: 4px 8px; }
 #downloads a.primary { background: var(--ink); color: #fff; border-color: var(--ink); }
 .save-row { display: flex; gap: 6px; margin-top: 8px; }
+.save-row[hidden] { display: none; }
 #warnings-card { background: var(--warn-bg); border-color: #f3d3a8; }
 #warnings { margin: 0; padding-left: 16px; color: var(--warn); display: grid; gap: 4px; }
 #stats { display: grid; grid-template-columns: auto 1fr; gap: 3px 10px; margin: 0; }

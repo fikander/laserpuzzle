@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { STLLoader } from "three/addons/loaders/STLLoader.js";
+import api from "laserpuzzle/api";
 
 const $ = (s) => document.querySelector(s);
 const state = { generators: [], gen: null, result: null, timer: null, seq: 0 };
@@ -17,7 +18,8 @@ const store = {
 
 // ------------------------------------------------------------------ form
 async function init() {
-  state.generators = await (await fetch("/api/generators")).json();
+  state.generators = await api.generators();
+  if (!api.save) $(".save-row").hidden = true;
   const sel = $("#generator");
   sel.innerHTML = state.generators.map((g) => `<option value="${g.id}">${g.name}</option>`).join("");
   sel.value = store.get("lp.gen") ?? state.generators[0]?.id;
@@ -58,18 +60,20 @@ async function field(p, value) {
   } else if (p.kind === "choice") {
     div.innerHTML = `<label>${p.label}${unit}</label><select name="${p.name}">${p.choices.map((c) => `<option ${c === value ? "selected" : ""}>${c}</option>`).join("")}</select>${help}`;
   } else if (p.kind === "file") {
-    const files = await (await fetch("/api/files?ext=" + encodeURIComponent(p.accept.join(",")))).json();
-    if (!value && files.length) value = files[0];
+    const files = api.listFiles ? await api.listFiles(p.accept) : [];
+    if (!files.includes(value)) value = files[0] ?? "";
     div.innerHTML = `<label>${p.label}</label>
       <div class="file-row"><select name="${p.name}">${files.map((f) => `<option ${f === value ? "selected" : ""}>${f}</option>`).join("")}</select>
-      <button type="button" title="Upload a file into inputs/">Upload…</button></div>
+      <button type="button" title="Upload a file">Upload…</button></div>
       <input type="file" accept="${p.accept.join(",")}" hidden>${help}`;
     const [btn, input, select] = [div.querySelector("button"), div.querySelector("input[type=file]"), div.querySelector("select")];
     btn.onclick = () => input.click();
     input.onchange = async () => {
-      const fd = new FormData(); fd.append("file", input.files[0]);
-      const { path } = await (await fetch("/api/upload", { method: "POST", body: fd })).json();
-      select.insertAdjacentHTML("beforeend", `<option selected>${path}</option>`);
+      if (!input.files[0]) return;
+      let path;
+      try { path = await api.upload(input.files[0]); } catch (e) { setStatus(`upload failed: ${e.message}`, "error"); return; }
+      input.value = "";
+      if (![...select.options].some((o) => o.value === path)) select.add(new Option(path, path));
       select.value = path; persist(); schedule(0);
     };
   } else {
@@ -101,14 +105,10 @@ function schedule(delay = 450) {
 async function generate() {
   const seq = ++state.seq;
   setStatus("generating…", "busy");
-  let res, data;
-  try {
-    res = await fetch("/api/generate", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ generator: state.gen.id, params: values(), check: $("#check").checked }),
-    });
-    data = await res.json();
-  } catch (e) { data = { error: String(e) }; }
+  const params = values();
+  const missing = state.gen.params.find((p) => p.kind === "file" && !params[p.name]);
+  if (missing) { setStatus(`Upload a file for "${missing.label}" to start`); return; }
+  const data = await api.generate({ generator: state.gen.id, params, check: $("#check").checked });
   if (seq !== state.seq) return; // a newer request superseded this one
   if (data.error) { setStatus(data.error, "error"); return; }
   state.result = data;
@@ -123,8 +123,9 @@ function setStatus(text, cls = "") { const s = $("#status"); s.textContent = tex
 // ------------------------------------------------------------------ info
 function renderInfo(d) {
   const dl = $("#downloads");
-  dl.innerHTML = `<a class="primary" href="/api/runs/${d.run}/all.zip">All files (.zip)</a>` +
-    d.sheets.map((s, i) => `<a href="/api/runs/${d.run}/sheet${i + 1}.svg">sheet ${i + 1} .svg</a><a href="/api/runs/${d.run}/sheet${i + 1}.dxf">.dxf</a>`).join("");
+  const link = (file, text, cls = "") => `<a href="#" class="${cls}" data-file="${file}">${text}</a>`;
+  dl.innerHTML = link("all.zip", "All files (.zip)", "primary") +
+    d.sheets.map((s, i) => link(`sheet${i + 1}.svg`, `sheet ${i + 1} .svg`) + link(`sheet${i + 1}.dxf`, ".dxf")).join("");
   if (!$("#save-name").value) $("#save-name").value = (d.params.model || d.generator).split("/").pop().replace(/\.[^.]+$/, "");
   const warns = [...d.warnings, ...d.collisions.map((c) => c.error ? `collision check: ${c.error}` : `Overlap: ${c.a} ↔ ${c.b} (${c.volume_mm3} mm³)`)];
   $("#warnings-card").hidden = !warns.length;
@@ -146,13 +147,24 @@ function renderSheets(d) {
   ).join("");
 }
 
+// downloads go through api.file() (a Blob), so they work with any backend, not only HTTP routes
+$("#downloads").onclick = async (ev) => {
+  const a = ev.target.closest("a[data-file]");
+  if (!a || !state.result) return;
+  ev.preventDefault();
+  const { run, generator } = state.result, file = a.dataset.file;
+  let blob;
+  try { blob = await api.file(run, file); } catch (e) { setStatus(`download failed: ${e.message}`, "error"); return; }
+  const url = URL.createObjectURL(blob);
+  const tmp = Object.assign(document.createElement("a"), { href: url, download: file === "all.zip" ? `${generator}.zip` : file });
+  document.body.appendChild(tmp); tmp.click(); tmp.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+
 $("#save").onclick = async () => {
-  if (!state.result) return;
-  const r = await fetch(`/api/runs/${state.result.run}/save`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: $("#save-name").value }),
-  });
-  const j = await r.json();
-  $("#save-result").textContent = j.dir ? `Saved ${j.files.length} files to ${j.dir}/` : (j.detail || "save failed");
+  if (!state.result || !api.save) return;
+  const j = await api.save(state.result.run, $("#save-name").value);
+  $("#save-result").textContent = j.dir ? `Saved ${j.files.length} files to ${j.dir}/` : (j.error || "save failed");
 };
 
 // --------------------------------------------------------------------- 3D
@@ -242,7 +254,7 @@ function applyExplode() {
 async function loadGhost(d) {
   if (three.ghost) { three.scene.remove(three.ghost); three.ghost = null; }
   if (!$("#ghost").checked || !d.has_mesh) return;
-  const buf = await (await fetch(`/api/runs/${d.run}/model.stl`)).arrayBuffer();
+  const buf = await (await api.file(d.run, "model.stl")).arrayBuffer();
   const geo = new STLLoader().parse(buf);
   three.ghost = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color: 0x3b82f6, transparent: true, opacity: 0.12, depthWrite: false }));
   three.scene.add(three.ghost);
