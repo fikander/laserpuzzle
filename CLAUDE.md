@@ -27,7 +27,7 @@ src/laserpuzzle/
     mesh.py        load + normalise meshes (Z up, base on z=0, centred, scaled)
     font.py        single-stroke font for engraved labels (no SVG <text>)
     layout.py      fabricate (kerf + labels) and shelf-nest onto sheets
-    export.py      SVG (red=cut, blue=engrave, mm) and DXF (CUT/ENGRAVE layers)
+    export.py      SVG (cut_color/engrave_color, default red/blue, mm) and DXF (CUT/ENGRAVE layers)
     validate.py    3D collision check between extruded parts (manifold3d; manifold WASM under Pyodide)
   generators/      one module per puzzle type, auto-discovered; base.py = interface + registry
   pipeline.py      run(): generator -> design -> sheets -> collisions; Run.preview()/write()/zip
@@ -50,7 +50,8 @@ docs/              architecture, adding generators, fabrication, per-generator d
 - Report problems through `design.warn(...)` (shown in UI and CLI), assembly steps through `design.notes`.
   Raise `ValueError` only for inputs that make generation impossible.
 - Parameters: declare with `Param`; group them (`group=`) for the UI. Defaults must generate something sensible.
-- Engraving goes in `Part.engrave` (LineStrings) or `Part.label` (short text, auto-fitted). Cut = red, engrave = blue.
+- Engraving goes in `Part.engrave` (LineStrings) or `Part.label` (short text, auto-fitted). Cut = red, engrave = blue by default
+  (`cut_color` / `engrave_color` fabrication params; the export functions take them as arguments).
 - Keep the UI build-free (ES modules, importmap). Preview JSON shape is produced only by `Run.preview()`.
 - `app.js` reaches the backend only through `ui/static/api.js` (importmap name `laserpuzzle/api`; interface
   documented at its top). No direct `fetch("/api/...")` or server-URL links in the UI; downloads go via `api.file()`.

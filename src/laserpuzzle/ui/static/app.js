@@ -76,6 +76,8 @@ async function field(p, value) {
       if (![...select.options].some((o) => o.value === path)) select.add(new Option(path, path));
       select.value = path; persist(); schedule(0);
     };
+  } else if (p.kind === "color") {
+    div.innerHTML = `<label>${p.label}</label><input type="color" name="${p.name}" value="${value ?? "#000000"}">${help}`;
   } else {
     const type = p.kind === "str" ? "text" : "number";
     const step = p.step ?? (p.kind === "int" ? 1 : "any");

@@ -79,7 +79,7 @@ laserpuzzle run fit-test -s thickness=3 -o output/fit
 laserpuzzle params stacked-layers     # all parameters with help
 ```
 
-Cut files: **red = cut, blue = engrave/score**, units mm. Import the SVG into LightBurn (or your laser software)
+Cut files: **red = cut, blue = engrave/score** by default (both colours are settings), units mm. Import the SVG into LightBurn (or your laser software)
 and assign settings per colour. Read [docs/fabrication.md](docs/fabrication.md) before your first cut.
 
 ## Docs

@@ -26,11 +26,14 @@ Set kerf so that a plain square comes out the right size. Then use clearance to 
 
 ## Files
 
-- SVG in millimetres. **Red `#ff0000` = cut**, **blue `#0000ff` = engrave/score** (line mode, low power).
+- SVG in millimetres. By default **red `#ff0000` = cut**, **blue `#0000ff` = engrave/score** (line mode, low power).
   In LightBurn, importing the SVG creates one layer per colour; set Line/Cut for red and Line/low-power for blue.
+- Colours are not a standard: laser software only uses them to separate operations, and shops and maker spaces
+  publish their own rules (e.g. yellow for line engraving). Set **Cut line colour** / **Engrave line colour**
+  (`cut_color`, `engrave_color`) to match. Fill (raster) engraving is not produced; all engraving is lines.
 - Holes come before outlines in the file so inner features are cut before a part can drop. Still, check the
   cut order in your software ("inner shapes first" in LightBurn's optimisation settings).
-- DXF has layers `CUT` and `ENGRAVE`.
+- DXF has layers `CUT` and `ENGRAVE`, coloured with the same two colours.
 - Labels are stroked text, not fonts, so they survive import anywhere.
 
 ## Material notes
