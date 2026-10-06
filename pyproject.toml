@@ -1,6 +1,6 @@
 [project]
 name = "laserpuzzle"
-version = "0.1.0"
+version = "0.2.0"
 description = "Generate laser-cut 3D puzzles (flat parts that assemble into 3D objects) from 3D models, drawings and parameters."
 readme = "README.md"
 license = "GPL-3.0-or-later"
