@@ -28,6 +28,7 @@ class FabPart:
     engrave: list[LineString]
     group: str
     copy: int = 0
+    cuts: list[LineString] = field(default_factory=list)   # open cut lines (living-hinge slits)
 
 
 @dataclass
@@ -35,6 +36,7 @@ class Placed:
     part: FabPart
     cut: BaseGeometry                    # in sheet coordinates
     engrave: list[LineString]
+    cuts: list[LineString] = field(default_factory=list)
 
 
 @dataclass
@@ -72,11 +74,14 @@ def fabricate(part: Part, kerf: float, labels: bool) -> list[FabPart]:
     if labels and part.label:
         engrave += label_lines(part.outline, part.label)
     cut = kerf_offset(part.outline, kerf)
-    return [FabPart(part.name, cut, engrave, part.group, copy=i) for i in range(part.quantity)]
+    return [FabPart(part.name, cut, engrave, part.group, copy=i, cuts=list(part.cuts)) for i in range(part.quantity)]
 
 
 def _orient(fp: FabPart) -> tuple[float, BaseGeometry, list[LineString]]:
-    """Rotate so the min-area rectangle is axis aligned, long side horizontal."""
+    """Rotate so the min-area rectangle is axis aligned, long side horizontal.
+
+    Returns (angle, cut, lines); lines = engrave + cuts, in that order (`nest` splits them again).
+    """
     mrr = fp.cut.minimum_rotated_rectangle
     angle = 0.0
     coords = list(mrr.exterior.coords) if hasattr(mrr, "exterior") else []
@@ -89,7 +94,7 @@ def _orient(fp: FabPart) -> tuple[float, BaseGeometry, list[LineString]]:
         else:
             angle = -math.degrees(math.atan2(y2 - y1, x2 - x1))
     cut = affinity.rotate(fp.cut, angle, origin=(0, 0))
-    eng = [affinity.rotate(l, angle, origin=(0, 0)) for l in fp.engrave]
+    eng = [affinity.rotate(l, angle, origin=(0, 0)) for l in fp.engrave + fp.cuts]
     minx, miny, _, _ = cut.bounds
     cut = affinity.translate(cut, -minx, -miny)
     eng = [affinity.translate(l, -minx, -miny) for l in eng]
@@ -131,7 +136,9 @@ def nest(fparts: list[FabPart], width: float, height: float, spacing: float, mar
             sheets.append(cur)
             x, y, shelf_h = margin, margin, 0.0
         yy = height - y - h  # fill from the top-left corner (sheet y axis points up)
-        cur.items.append(Placed(fp, affinity.translate(cut, x, yy), [affinity.translate(l, x, yy) for l in eng]))
+        lines = [affinity.translate(l, x, yy) for l in eng]
+        n_eng = len(fp.engrave)
+        cur.items.append(Placed(fp, affinity.translate(cut, x, yy), lines[:n_eng], lines[n_eng:]))
         x += w + spacing
         shelf_h = max(shelf_h, h)
     return sheets, warnings
@@ -143,4 +150,5 @@ def total_cut_length(sheets: list[Sheet]) -> float:
         for it in s.items:
             for p in as_polygons(it.cut):
                 total += p.length
+            total += sum(l.length for l in it.cuts)
     return total

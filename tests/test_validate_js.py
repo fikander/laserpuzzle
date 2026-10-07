@@ -81,3 +81,13 @@ def test_js_backend_matches_native_and_frees_solids():
 def test_js_backend_finds_overlaps():
     design = run("vehicle", {"clearance": -0.3}, check=False).design
     assert len(js_collisions(design, FakeManifoldJS)) > 0
+
+
+def test_js_backend_pair_filter_matches_native():
+    design = run("vehicle", {"clearance": -0.3}, check=False).design
+    only = lambda a, b: "Side" in a.name or "Side" in b.name    # noqa: E731
+    _Solid.live = 0
+    js = js_collisions(design, FakeManifoldJS, only=only)
+    assert sorted(map(str, js)) == sorted(map(str, collisions(design, only=only)))
+    assert js and all("Side" in r["a"] or "Side" in r["b"] for r in js)
+    assert _Solid.live == 0

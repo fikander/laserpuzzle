@@ -49,6 +49,8 @@ It is discovered automatically: `laserpuzzle list`, the CLI and the UI pick it u
 - **Place every part in 3D** with a rigid transform so the preview and the collision check work.
   The part occupies local z ∈ [0, t]; use `centered=True` (or `vertical_xz/yz`) for plates that must be centred on a plane.
 - **Joints must not overlap** at clearance 0. Half-laps: each plate loses exactly the half of the overlap the other keeps.
+- **Moving parts**: build the rest pose, add a `design.Pivot` per axis (with a realistic `range`, `parent` for
+  chained arms, `driver` for gears) and assert `r.motion_collisions == []` too.
 - **Explode vectors**: give each part a direction that pulls it away along its assembly path.
 - **Labels**: `label="L3"`; it's auto-sized to fit, or skipped if it doesn't.
 - **Warnings** for fixable problems (`d.warn("Layer 7 is thinner than 2 mm")`), `ValueError` for impossible inputs.
@@ -103,6 +105,11 @@ A plugin that fails to import produces a warning and is skipped; built-in genera
 | `geometry.rect(x0, y0, x1, y1)` | axis-aligned rectangle (slots) |
 | `design.plane_transform(...)` | any plate orientation |
 | `joints.tab_slot(edge_part, face_part, edge, clearance=c)` | edge of one plate into slots in another (any angle) |
-| `joints.cross_lap(a, b, clearance=c)` | two perpendicular plates slotted halfway into each other |
+| `joints.cross_lap(a, b, clearance=c)` | two perpendicular plates slotted halfway into each other (each overlap span on its own) |
+| `joints.finger_joint(a, b, clearance=c)` | box corners / T joints at any angle: draw both plates to full size, the overlap becomes alternating fingers |
+| `joints.pin_joint(parts, origin, axis, d, fit=..., washer_thickness=t)` | holes for a pin through a stack, the pin as hardware, spacer washers |
+| `joints.living_hinge(part, region)` | staggered slits (`Part.cuts`) that make a region bendable; size it with `joints.hinge_length` |
+| `design.Pivot(name, origin, axis, parts=[...], range=(lo, hi))` | rotation axis for moving parts; checked by `validate.motion_collisions` |
+| `gears.spur_gear(module, teeth, backlash=b, bore=d)` | involute gear outline; place pairs with `center_distance` + `mesh_rotation` |
 | `font.text_lines(text, h, cx, cy, angle)` | engrave arbitrary text as strokes |
 | `mesh.load_model(path, up_axis, flip, height, rotate_z)` | normalised mesh |

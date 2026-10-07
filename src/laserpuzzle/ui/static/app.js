@@ -230,6 +230,12 @@ function renderAssembly(d) {
     }
     eng.visible = $("#engrave").checked;
     body.add(eng);
+    for (const l of p.cuts || []) {           // open cuts (living-hinge slits) on both faces
+      for (const z of [-0.02, p.thickness + 0.02]) {
+        const pts = l.map(([x, y]) => new THREE.Vector3(x, y, z));
+        body.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0x3a2a1c })));
+      }
+    }
     wrap.add(body);
     wrap.userData = { explode: new THREE.Vector3(...p.explode), part: p, mat, color };
     root.add(wrap);

@@ -73,6 +73,8 @@ def sheet_svg(sheet: Sheet, show_sheet: bool = False,
             ds += [_ring_d(i.coords, H) for i in p.interiors]
         for p in as_polygons(it.cut):
             ds.append(_ring_d(p.exterior.coords, H))
+        # open cuts (hinge slits) before the outline, which frees the part
+        ds = [_line_d(l.coords, H) for l in it.cuts] + ds
         title = escape(it.part.name)
         out.append(f'<path data-part="{title}" d="{" ".join(ds)}"><title>{title}</title></path>')
     out.append("</g>")
@@ -90,6 +92,8 @@ def sheet_dxf(sheet: Sheet, cut_color: str = CUT_COLOR, engrave_color: str = ENG
     for it in sheet.items:
         for l in it.engrave:
             msp.add_lwpolyline(list(l.coords), dxfattribs={"layer": "ENGRAVE"})
+        for l in it.cuts:
+            msp.add_lwpolyline(list(l.coords), dxfattribs={"layer": "CUT"})
         for p in as_polygons(it.cut):
             for ring in list(p.interiors) + [p.exterior]:
                 msp.add_lwpolyline(list(ring.coords)[:-1], close=True, dxfattribs={"layer": "CUT"})
