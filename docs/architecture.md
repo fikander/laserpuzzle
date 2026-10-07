@@ -47,11 +47,13 @@ This split is what makes new generators cheap: a generator only produces a `Desi
   place the parts first, then call a joint; it edits the outlines in place using the transforms and returns a
   `Joint` (added/removed shapes, warnings for the generator to pass to `design.warn`, new `parts`/`hardware`
   such as washers and pins for the generator to add, and joint-specific `info`).
-- **Pivot** — a rotation axis for moving assemblies (pin joints, turntables, gear shafts): world `origin` +
-  `axis` in the rest pose, the `parts`/`hardware` that turn about it, the allowed `range` in degrees, an
-  optional `parent` pivot it rides on (boom → stick → bucket) and an optional `driver` (pivot, ratio) for
-  gears. The Design is always built in its rest pose (all angles 0); `Design.posed(angles)` returns a moved
-  copy, `Design.pivot_problems()` lists inconsistent declarations.
+- **Pivot** — a joint of a moving assembly: a rotation axis (pin joints, turntables, gear shafts) or, with
+  `kind="slide"`, a straight guide (cam followers, push rods). World `origin` + `axis` in the rest pose, the
+  `parts`/`hardware` that move on it, the allowed `range` (degrees, or mm for a slide), an optional `parent`
+  pivot it rides on (boom → stick → bucket) and an optional `driver`: (pivot, ratio) for gears, or
+  (pivot, table) for a cam — `[(driver angle, value), ...]` over one turn, linear in between, repeating every
+  turn (`cam_value`). The Design is always built in its rest pose (all values 0); `Design.posed(angles)`
+  returns a moved copy, `Design.pivot_problems()` lists inconsistent declarations.
 - **Design** — parts + hardware + pivots + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
 - **Gears** (`core/gears.py`) — involute `spur_gear` and `rack` outlines, `center_distance`, `gear_ratio`,
   `mesh_rotation` (phase so a placed pair meshes).
@@ -78,7 +80,8 @@ bounding boxes overlap (manifold3d). Any overlap above a small tolerance is repo
 test should assert there are no collisions at clearance 0. `only=` restricts the pairs checked.
 
 `validate.motion_collisions` handles designs with pivots: each free pivot is swept alone through its range
-(7 angles, others at rest), then all of them at their minimum and at their maximum; driven pivots follow their
+(7 values, others at rest, plus the values where a cam it drives is at its lowest or highest:
+`cam_extremes`), then all of them at their minimum and at their maximum; driven pivots follow their
 drivers. Only pairs whose relative position changed are re-checked, and pairs already overlapping at rest are
 left to `collisions`. Each colliding pair is reported once, at the pose with the largest overlap, with that
 pose. `run()` puts the result in `Run.motion_collisions` (also in the summary and preview).

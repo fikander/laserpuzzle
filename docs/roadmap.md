@@ -18,7 +18,8 @@ needs real joints.
    - ✅ `cross_lap` joins each separate overlap span on its own (`spans="each"`).
    - `t_slot(..., screw="M3")`: bolt + captive nut, for things you want to take apart.
    Each joint works in 3D (uses both transforms) and is checked by the collision test.
-1b. ✅ **Moving assemblies.** `design.Pivot` (axis, range, parent chain, gear driver), `Design.posed`, and
+1b. ✅ **Moving assemblies.** `design.Pivot` (axis or slide, range, parent chain, gear and cam drivers),
+   `Design.posed`, and
    `validate.motion_collisions` (collision check across the range of motion). ✅ Involute gears in
    `core/gears.py`. Next: pose sliders in the UI (the preview already carries `pivots`), a sweep that also
    tries pivot combinations (today: each alone + all-min + all-max).

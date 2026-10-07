@@ -12,7 +12,7 @@ package; in the browser (Pyodide) the page loads manifold's own WASM build
 `js_collisions`. Both give the same volumes.
 
 `motion_collisions` repeats the check while each `Pivot` sweeps through its
-range (moving assemblies: pin joints, turntables, gears). Only pairs whose
+range (moving assemblies: pin joints, turntables, gears, cams). Only pairs whose
 relative position changes are re-checked.
 """
 
@@ -25,7 +25,7 @@ from typing import Any, Callable
 import numpy as np
 import trimesh
 
-from .design import Design, Part
+from .design import Design, Part, Pivot, is_cam, table_problem
 from .geometry import as_polygons
 
 
@@ -145,14 +145,46 @@ def js_collisions(design: Design, manifold: Any, to_js: Callable = lambda x: x,
             s.delete()
 
 
+def cam_extremes(design: Design, free: Pivot) -> list[float]:
+    """Values of the free pivot `free`, within its range, at which a cam-driven pivot (see
+    `Pivot.driver`) it moves reaches its lowest or highest value. Cams geared to `free` count
+    too; a cam driven by another cam doesn't."""
+    piv = {p.name: p for p in design.pivots}
+    lo, hi = free.range
+    out: list[float] = []
+    for q in design.pivots:
+        if not is_cam(q.driver) or table_problem(q.driver[1]):
+            continue
+        ratio, cur, seen = 1.0, piv.get(q.driver[0]), set()
+        while cur is not None and cur is not free and cur.name not in seen:   # geared links back to `free`
+            seen.add(cur.name)
+            if cur.driver is None or is_cam(cur.driver):
+                cur = None
+                break
+            ratio *= float(cur.driver[1])
+            cur = piv.get(cur.driver[0])
+        if cur is not free or abs(ratio) < 1e-12:
+            continue
+        t = np.asarray(q.driver[1], float)
+        for x in (t[np.argmin(t[:, 1]), 0], t[np.argmax(t[:, 1]), 0]):
+            # driver angle x + 360 k = ratio * a, for every a in [lo, hi]
+            ks = sorted(((ratio * lo - x) / 360.0, (ratio * hi - x) / 360.0))
+            for k in range(int(np.ceil(ks[0] - 1e-9)), int(np.floor(ks[1] + 1e-9)) + 1):
+                out.append(float((x + 360.0 * k) / ratio))
+    return sorted({round(a, 6) for a in out if lo - 1e-9 <= a <= hi + 1e-9})
+
+
 def sweep_poses(design: Design, steps: int = 7) -> list[dict[str, float]]:
-    """Poses `motion_collisions` checks: each free pivot alone at `steps` angles across its
-    range (others at rest), then all free pivots at their minimum and at their maximum."""
+    """Poses `motion_collisions` checks: each free pivot alone at `steps` values across its
+    range (others at rest), plus where the cams it drives reach their extremes (`cam_extremes`),
+    then all free pivots at their minimum and at their maximum."""
     free = [p for p in design.pivots if p.driver is None]
     poses: list[dict[str, float]] = []
     for p in free:
         lo, hi = p.range
-        poses += [{p.name: float(a)} for a in np.linspace(lo, hi, max(2, steps)) if abs(a) > 1e-9]
+        values = [float(a) for a in np.linspace(lo, hi, max(2, steps))]
+        values += [a for a in cam_extremes(design, p) if all(abs(a - b) > 1e-6 for b in values)]
+        poses += [{p.name: a} for a in values if abs(a) > 1e-9]
     if len(free) > 1:
         poses.append({p.name: float(p.range[0]) for p in free})
         poses.append({p.name: float(p.range[1]) for p in free})

@@ -75,6 +75,8 @@ subclass with `id`, `name`, `description`, `params`, `generate(v, ctx) -> Design
   `Joint.parts` / `Joint.hardware` (washers, pins) to the design.
 - `finger_joint` expects both plates drawn to full outer size (they overlap at the corner); it splits the overlap.
 - Moving parts: build the rest pose (all pivot angles 0), declare `Pivot`s, test `motion_collisions == []`.
+  Cam followers: a `Pivot(kind="slide")` (or a turning one, for a lever) with a cam table as its `driver`;
+  the table has to match the cam exactly, or the follower sinks into it or floats.
 - Keep the project out of iCloud-synced folders (`~/Documents`, `~/Desktop`): iCloud sets the macOS `hidden`
   flag on the venv's editable-install `.pth` and Python 3.14 skips hidden `.pth` files (`import laserpuzzle` fails).
 - In this repo, `pawn.stl` is a Y-up sample model (auto up-axis detects it).
@@ -87,6 +89,7 @@ laminated wheels with blind caps; push toy for a 3-year-old; trailer presets + p
 any vehicle tows any trailer), web UI with 3D + sheet preview, generator plugins from other packages
 (`laserpuzzle.generators` entry points, see `docs/adding-a-generator.md`).
 Joints for boxes and mechanisms: `finger_joint`, `pin_joint` (+ washers), `living_hinge` (`Part.cuts`),
-multi-span `cross_lap`; `Pivot`s + `validate.motion_collisions`; involute gears (`core/gears.py`).
+multi-span `cross_lap`; `Pivot`s (turn / slide, gear and cam drivers) + `validate.motion_collisions`; involute
+gears (`core/gears.py`).
 Next: T-slot joint, pose sliders in the UI, living-hinge vehicle roof, better nesting, custom vehicle profiles
 (`docs/roadmap.md`).

@@ -15,10 +15,10 @@ dowels, axles, magnets, balls). Each Part carries:
 
 World convention: millimetres, Z up, model standing on z=0.
 
-Moving assemblies (pin joints, turntables, gears) describe their axes as
-`Pivot`s. The Design is built in its rest pose (every pivot at 0 deg);
-`Design.posed(angles)` moves the parts, and `validate.motion_collisions`
-sweeps each pivot through its range.
+Moving assemblies (pin joints, turntables, gears, cams and followers) describe
+their axes and guides as `Pivot`s. The Design is built in its rest pose (every
+pivot at 0); `Design.posed(angles)` moves the parts, and
+`validate.motion_collisions` sweeps each pivot through its range.
 """
 
 from __future__ import annotations
@@ -116,19 +116,33 @@ def rotation_about(origin, axis, angle_deg: float) -> np.ndarray:
     return m
 
 
+def translation_along(axis, distance: float) -> np.ndarray:
+    """4x4 move by `distance` along the world direction `axis`."""
+    k = np.asarray(axis, float)
+    m = np.eye(4)
+    m[:3, 3] = k / np.linalg.norm(k) * distance
+    return m
+
+
 @dataclass
 class Pivot:
-    """A rotation axis that parts turn about (pin joint, turntable, gear shaft).
+    """A joint parts move on: a rotation axis (pin joint, turntable, gear shaft) or a straight
+    guide (`kind="slide"`: cam follower, push rod). Its value is an angle in degrees for "turn",
+    a distance in mm along `axis` for "slide".
 
     origin, axis  World point and direction of the axis in the rest pose.
-    parts         Names of the parts that turn about this axis. Parts of child pivots
+    kind          "turn" (default) or "slide".
+    parts         Names of the parts that move with it. Parts of child pivots
                   follow automatically; don't list them here.
-    hardware      Names of hardware items (pins, axles) that turn with it.
-    range         (min, max) angle in degrees that the mechanism allows; swept by
-                  `validate.motion_collisions`. The rest pose (0) should be inside it.
+    hardware      Names of hardware items (pins, axles) that move with it.
+    range         (min, max) value the mechanism allows; swept by `validate.motion_collisions`.
+                  The rest pose (0) should be inside it.
     parent        Pivot this one rides on (boom -> stick -> bucket): its axis moves with the parent.
-    driver        (pivot name, ratio): this pivot is geared to another; angle = ratio x driver's angle.
-                  Driven pivots are not swept on their own.
+    driver        Another pivot that moves this one; driven pivots are not swept on their own.
+                  (pivot name, ratio): value = ratio x driver's value (gears).
+                  (pivot name, table): a cam. `table` is [(driver angle, value), ...] over one
+                  turn, angles rising within [0, 360); the value is interpolated linearly
+                  between the points and repeats every 360 deg of the driver (`cam_value`).
     """
 
     name: str
@@ -138,7 +152,42 @@ class Pivot:
     hardware: list[str] = field(default_factory=list)
     range: tuple[float, float] = (-180.0, 180.0)
     parent: str | None = None
-    driver: tuple[str, float] | None = None
+    driver: tuple[str, float | list[tuple[float, float]]] | None = None
+    kind: str = "turn"
+
+
+PIVOT_KINDS = ("turn", "slide")
+
+
+def is_cam(driver) -> bool:
+    """True for a (pivot, table) driver, False for a (pivot, ratio) one."""
+    return driver is not None and not isinstance(driver[1], (int, float, np.number))
+
+
+def cam_value(table, angle: float) -> float:
+    """Value of a cam table (see `Pivot.driver`) at the driver's `angle` (deg, any turn)."""
+    t = np.asarray(table, float)
+    return float(np.interp(angle % 360.0, t[:, 0], t[:, 1], period=360.0))
+
+
+def driven_value(driver, value: float) -> float:
+    """A driven pivot's value when its driver is at `value`."""
+    return cam_value(driver[1], value) if is_cam(driver) else float(driver[1]) * value
+
+
+def table_problem(table) -> str | None:
+    """What is wrong with a cam table (None if nothing)."""
+    try:
+        t = np.asarray(table, float)
+    except (TypeError, ValueError):
+        return "cam table is not a list of (angle, value) pairs"
+    if t.ndim != 2 or t.shape[1] != 2 or len(t) < 2:
+        return "cam table needs at least two (angle, value) pairs"
+    if not np.all(np.isfinite(t)):
+        return "cam table has values that aren't numbers"
+    if t[0, 0] < 0 or t[-1, 0] >= 360 or np.any(np.diff(t[:, 0]) <= 0):
+        return "cam table angles must rise within [0, 360)"
+    return None
 
 
 @dataclass
@@ -173,11 +222,15 @@ class Design:
                     out.append(f"Part {n} is on two pivots ({owner[n]}, {p.name}).")
                 owner.setdefault(n, p.name)
             out += [f"Pivot {p.name}: no hardware named {n}." for n in p.hardware if n not in hw]
+            if p.kind not in PIVOT_KINDS:
+                out.append(f"Pivot {p.name}: unknown kind {p.kind!r}.")
+            if is_cam(p.driver) and (problem := table_problem(p.driver[1])):
+                out.append(f"Pivot {p.name}: {problem}.")
             for ref in (p.parent, p.driver[0] if p.driver else None):
                 if ref is not None and ref not in piv:
                     out.append(f"Pivot {p.name}: no pivot named {ref}.")
             if not p.range[0] <= 0 <= p.range[1]:
-                out.append(f"Pivot {p.name}: rest pose 0 deg is outside its range {p.range}.")
+                out.append(f"Pivot {p.name}: rest pose 0 is outside its range {p.range}.")
         for p in self.pivots:                       # parent / driver chains must end
             seen, cur = set(), p
             while cur is not None and cur.name not in seen:
@@ -190,7 +243,8 @@ class Design:
         return out
 
     def pivot_angles(self, angles: dict[str, float]) -> dict[str, float]:
-        """Every pivot's angle: given ones, driven ones from their drivers, the rest 0."""
+        """Every pivot's value (deg, or mm for a slide): given ones, driven ones from their drivers,
+        the rest 0."""
         piv = {p.name: p for p in self.pivots}
         out: dict[str, float] = {}
 
@@ -198,7 +252,7 @@ class Design:
             if name not in out:
                 p = piv[name]
                 if p.driver and depth < len(piv):
-                    out[name] = p.driver[1] * angle(p.driver[0], depth + 1)
+                    out[name] = driven_value(p.driver, angle(p.driver[0], depth + 1))
                 else:
                     out[name] = float(angles.get(name, 0.0))
             return out[name]
@@ -216,7 +270,8 @@ class Design:
         def motion(name: str, depth: int = 0) -> np.ndarray:
             if name not in out:
                 p = piv[name]
-                own = rotation_about(p.origin, p.axis, ang[name])
+                own = (translation_along(p.axis, ang[name]) if p.kind == "slide"
+                       else rotation_about(p.origin, p.axis, ang[name]))
                 parent = p.parent if p.parent in piv and depth < len(piv) else None
                 out[name] = motion(parent, depth + 1) @ own if parent else own
             return out[name]

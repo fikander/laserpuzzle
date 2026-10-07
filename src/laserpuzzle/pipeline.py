@@ -18,7 +18,7 @@ from typing import Any
 import numpy as np
 
 from .core import export, layout, validate
-from .core.design import Design
+from .core.design import Design, is_cam
 from .core.geometry import as_polygons
 from .core.params import coerce_values
 from .generators.base import Context, get
@@ -119,8 +119,8 @@ class Run:
             "name": v.name, "origin": [float(x) for x in v.origin], "axis": [float(x) for x in v.axis],
             "parts": [part_ids[n] for n in v.parts if n in part_ids],
             "hardware": [i for i, h in enumerate(self.design.hardware) if h.name in v.hardware],
-            "range": [float(v.range[0]), float(v.range[1])], "parent": v.parent,
-            "driver": list(v.driver) if v.driver else None,
+            "range": [float(v.range[0]), float(v.range[1])], "parent": v.parent, "kind": v.kind,
+            "driver": _driver_json(v.driver),
         } for v in self.design.pivots]
         return {
             "run": self.id,
@@ -134,6 +134,15 @@ class Run:
             **self.summary(),
             "timings": self.timings,
         }
+
+
+def _driver_json(driver) -> list | None:
+    """[pivot, ratio] or, for a cam, [pivot, [[angle, value], ...]]."""
+    if driver is None:
+        return None
+    if is_cam(driver):
+        return [driver[0], [[float(a), float(b)] for a, b in driver[1]]]
+    return [driver[0], float(driver[1])]
 
 
 def _pts(coords) -> list[list[float]]:

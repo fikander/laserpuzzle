@@ -7,12 +7,12 @@ import pytest
 from shapely.geometry import Point, Polygon
 
 from laserpuzzle.core import export, layout
-from laserpuzzle.core.design import (Design, Part, Pivot, horizontal, plane_transform, rotation_about,
+from laserpuzzle.core.design import (Design, Part, Pivot, cam_value, horizontal, plane_transform, rotation_about,
                                      vertical_xz, vertical_yz)
 from laserpuzzle.core.gears import center_distance, gear_ratio, mesh_rotation, rack, spur_gear
 from laserpuzzle.core.geometry import as_polygons, rect
 from laserpuzzle.core.joints import cross_lap, finger_joint, hinge_length, living_hinge, pin_joint
-from laserpuzzle.core.validate import collisions, motion_collisions, sweep_poses
+from laserpuzzle.core.validate import cam_extremes, collisions, motion_collisions, sweep_poses
 
 T = 3.0
 
@@ -235,6 +235,65 @@ def test_sweep_poses_skip_driven_pivots():
     assert d.pivot_angles({"a": 10}) == {"a": 10.0, "b": -20.0}
 
 
+# -------------------------------------------------------------------- cams
+def cam_design(lift=None):
+    """An eccentric disc cam (r 20, 8 off its shaft) turning about +y, under a flat follower
+    that slides up and down. `lift`: the follower's cam table; default = exactly what the cam
+    pushes it to (the top of the turned disc), every 5 deg."""
+    e, r = 8.0, 20.0
+    cam = Part("cam", Point(e, 0).buffer(r, quad_segs=32), T, vertical_xz(0, T))
+    top = lambda a: r - e * math.sin(math.radians(a))          # noqa: E731  # +a about +y swings +x down
+    foot = Part("foot", rect(-30, -10, 30, 10), T, horizontal(top(0)))
+    table = [(a, top(a) - top(0)) for a in range(0, 360, 5)] if lift is None else lift
+    d = Design(parts=[cam, foot])
+    d.pivots = [Pivot("shaft", (0, 0, 0), (0, 1, 0), parts=["cam"]),
+                Pivot("follower", (0, 0, top(0)), (0, 0, 1), parts=["foot"], kind="slide",
+                      range=(-2 * e, 2 * e), driver=("shaft", table))]
+    return d
+
+
+def test_cam_table_interpolates_and_repeats():
+    t = [(0, 0.0), (90, 10.0), (180, 0.0), (270, -10.0)]
+    assert cam_value(t, 45) == pytest.approx(5.0)
+    assert cam_value(t, 315) == pytest.approx(-5.0)               # between the last point and 360 = 0
+    assert cam_value(t, 360 + 90) == cam_value(t, -270) == pytest.approx(10.0)
+
+
+def test_slide_pivot_follows_the_cam():
+    d = cam_design()
+    assert d.pivot_problems() == []
+    ang = d.pivot_angles({"shaft": -90})
+    assert ang["follower"] == pytest.approx(8.0)
+    z = d.posed({"shaft": -90}).parts[1].transform[2, 3]
+    assert z == pytest.approx(20.0 + 8.0)                          # moved straight up by the cam value
+    assert collisions(d) == []
+    assert motion_collisions(d) == []
+
+
+def test_follower_that_does_not_lift_collides():
+    hits = motion_collisions(cam_design(lift=[(0, 0.0), (180, 0.0)]))
+    assert [(h["a"], h["b"]) for h in hits] == [("cam", "foot")]
+    assert hits[0]["pose"]["shaft"] < 0                           # the half turn where the cam rises
+
+
+def test_sweep_includes_cam_extremes_through_gears():
+    d = cam_design()
+    assert cam_extremes(d, d.pivots[0]) == [-90.0, 90.0]
+    # crank geared 2:1 to the shaft: the cam peaks at crank -180 (shaft -90) and bottoms at crank 180
+    d.pivots[0].driver = ("crank", 0.5)
+    d.pivots.insert(0, Pivot("crank", (0, 0, 0), (0, 1, 0), range=(-180.0, 180.0)))
+    assert cam_extremes(d, d.pivots[0]) == [-180.0, 180.0]
+    assert {180.0, -180.0} <= {p["crank"] for p in sweep_poses(d)}
+
+
+def test_pivot_problems_with_cams():
+    d = cam_design(lift=[(0, 0.0), (400, 1.0)])
+    assert any("rise within" in p for p in d.pivot_problems())
+    d = cam_design()
+    d.pivots[1].kind = "wobble"
+    assert any("unknown kind" in p for p in d.pivot_problems())
+
+
 # ------------------------------------------------------------------- gears
 def gear_pair(z1=12, z2=20, m=3.0, backlash=0.15, phase=None):
     c = center_distance(m, z1, z2)
@@ -338,3 +397,28 @@ def test_preview_carries_pivots_and_cuts():
         assert "motion" in r.timings
     finally:
         _REGISTRY.pop("_test-arm", None)
+
+
+def test_preview_carries_cam_drivers():
+    from laserpuzzle.generators.base import Generator, register, _REGISTRY
+    from laserpuzzle.pipeline import run
+
+    @register
+    class _Cam(Generator):
+        id = "_test-cam"
+        name = "test cam"
+        description = ""
+        params = []
+
+        def generate(self, v, ctx):
+            return cam_design()
+
+    try:
+        r = run("_test-cam", {})
+        shaft, follower = r.preview()["pivots"]
+        assert shaft["kind"] == "turn" and shaft["driver"] is None
+        assert follower["kind"] == "slide" and follower["driver"][0] == "shaft"
+        assert follower["driver"][1][18] == [90.0, pytest.approx(-8.0)]
+        assert r.collisions == [] and r.motion_collisions == []
+    finally:
+        _REGISTRY.pop("_test-cam", None)
