@@ -7,16 +7,23 @@ dowels, axles, magnets, balls). Each Part carries:
                Polygon/MultiPolygon. Holes are cut-outs. NO kerf applied:
                kerf is a fabrication concern handled at export.
 * `engrave`  - list of 2D LineStrings to engrave/score (local coords).
+* `cuts`     - open 2D LineStrings cut through the part without removing
+               material (living-hinge slits). Cut colour, no kerf offset.
 * `transform`- 4x4 matrix mapping local (x, y, z) to the assembled world
                position. The part occupies local z in [0, thickness].
 * `explode`  - world-space offset direction used by the "exploded" preview.
 
 World convention: millimetres, Z up, model standing on z=0.
+
+Moving assemblies (pin joints, turntables, gears) describe their axes as
+`Pivot`s. The Design is built in its rest pose (every pivot at 0 deg);
+`Design.posed(angles)` moves the parts, and `validate.motion_collisions`
+sweeps each pivot through its range.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 import numpy as np
@@ -68,6 +75,7 @@ class Part:
     thickness: float
     transform: np.ndarray = field(default_factory=lambda: np.eye(4))
     engrave: list[LineString] = field(default_factory=list)
+    cuts: list[LineString] = field(default_factory=list)   # open cut lines inside the outline (no material removed)
     label: str | None = None           # short text engraved on the part (e.g. "L03")
     group: str = "part"                # used for colouring / BOM grouping
     explode: tuple[float, float, float] = (0.0, 0.0, 0.0)
@@ -94,10 +102,50 @@ class Hardware:
     note: str = ""
 
 
+def rotation_about(origin, axis, angle_deg: float) -> np.ndarray:
+    """4x4 rotation by `angle_deg` (right-hand rule) about the world line through `origin` along `axis`."""
+    k = np.asarray(axis, float)
+    k = k / np.linalg.norm(k)
+    a = np.radians(angle_deg)
+    kx = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    r = np.eye(3) + np.sin(a) * kx + (1 - np.cos(a)) * kx @ kx
+    o = np.asarray(origin, float)
+    m = np.eye(4)
+    m[:3, :3] = r
+    m[:3, 3] = o - r @ o
+    return m
+
+
+@dataclass
+class Pivot:
+    """A rotation axis that parts turn about (pin joint, turntable, gear shaft).
+
+    origin, axis  World point and direction of the axis in the rest pose.
+    parts         Names of the parts that turn about this axis. Parts of child pivots
+                  follow automatically; don't list them here.
+    hardware      Names of hardware items (pins, axles) that turn with it.
+    range         (min, max) angle in degrees that the mechanism allows; swept by
+                  `validate.motion_collisions`. The rest pose (0) should be inside it.
+    parent        Pivot this one rides on (boom -> stick -> bucket): its axis moves with the parent.
+    driver        (pivot name, ratio): this pivot is geared to another; angle = ratio x driver's angle.
+                  Driven pivots are not swept on their own.
+    """
+
+    name: str
+    origin: tuple[float, float, float]
+    axis: tuple[float, float, float]
+    parts: list[str] = field(default_factory=list)
+    hardware: list[str] = field(default_factory=list)
+    range: tuple[float, float] = (-180.0, 180.0)
+    parent: str | None = None
+    driver: tuple[str, float] | None = None
+
+
 @dataclass
 class Design:
     parts: list[Part] = field(default_factory=list)
     hardware: list[Hardware] = field(default_factory=list)
+    pivots: list[Pivot] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)      # assembly instructions, tips
     source_mesh: Any = None                             # trimesh.Trimesh in world coords (for ghost preview)
@@ -106,6 +154,87 @@ class Design:
 
     def warn(self, msg: str) -> None:
         self.warnings.append(msg)
+
+    # ------------------------------------------------------------ motion
+    def pivot_problems(self) -> list[str]:
+        """Inconsistent pivot declarations (unknown names, cycles, part on two pivots)."""
+        out = []
+        names = {p.name for p in self.parts}
+        hw = {h.name for h in self.hardware}
+        piv = {p.name: p for p in self.pivots}
+        owner: dict[str, str] = {}
+        if len(piv) != len(self.pivots):
+            out.append("Two pivots have the same name.")
+        for p in self.pivots:
+            for n in p.parts:
+                if n not in names:
+                    out.append(f"Pivot {p.name}: no part named {n}.")
+                elif n in owner:
+                    out.append(f"Part {n} is on two pivots ({owner[n]}, {p.name}).")
+                owner.setdefault(n, p.name)
+            out += [f"Pivot {p.name}: no hardware named {n}." for n in p.hardware if n not in hw]
+            for ref in (p.parent, p.driver[0] if p.driver else None):
+                if ref is not None and ref not in piv:
+                    out.append(f"Pivot {p.name}: no pivot named {ref}.")
+            if not p.range[0] <= 0 <= p.range[1]:
+                out.append(f"Pivot {p.name}: rest pose 0 deg is outside its range {p.range}.")
+        for p in self.pivots:                       # parent / driver chains must end
+            seen, cur = set(), p
+            while cur is not None and cur.name not in seen:
+                seen.add(cur.name)
+                nxt = cur.parent or (cur.driver[0] if cur.driver else None)
+                cur = piv.get(nxt) if nxt else None
+            if cur is not None:
+                out.append(f"Pivot {p.name}: parent/driver chain loops.")
+                break
+        return out
+
+    def pivot_angles(self, angles: dict[str, float]) -> dict[str, float]:
+        """Every pivot's angle: given ones, driven ones from their drivers, the rest 0."""
+        piv = {p.name: p for p in self.pivots}
+        out: dict[str, float] = {}
+
+        def angle(name: str, depth: int = 0) -> float:
+            if name not in out:
+                p = piv[name]
+                if p.driver and depth < len(piv):
+                    out[name] = p.driver[1] * angle(p.driver[0], depth + 1)
+                else:
+                    out[name] = float(angles.get(name, 0.0))
+            return out[name]
+
+        for n in piv:
+            angle(n)
+        return out
+
+    def motions(self, angles: dict[str, float]) -> dict[str, np.ndarray]:
+        """World motion (4x4, applied on top of the rest-pose transform) of every pivot."""
+        piv = {p.name: p for p in self.pivots}
+        ang = self.pivot_angles(angles)
+        out: dict[str, np.ndarray] = {}
+
+        def motion(name: str, depth: int = 0) -> np.ndarray:
+            if name not in out:
+                p = piv[name]
+                own = rotation_about(p.origin, p.axis, ang[name])
+                parent = p.parent if p.parent in piv and depth < len(piv) else None
+                out[name] = motion(parent, depth + 1) @ own if parent else own
+            return out[name]
+
+        for n in piv:
+            motion(n)
+        return out
+
+    def posed(self, angles: dict[str, float]) -> "Design":
+        """Copy with parts and hardware moved to the pose `angles` (pivot name -> degrees)."""
+        mot = self.motions(angles)
+        part_m = {n: mot[p.name] for p in self.pivots for n in p.parts}
+        hw_m = {n: mot[p.name] for p in self.pivots for n in p.hardware}
+        d = replace(self)
+        d.parts = [replace(p, transform=part_m[p.name] @ p.transform) if p.name in part_m else p for p in self.parts]
+        d.hardware = [replace(h, transform=hw_m[h.name] @ h.transform) if h.name in hw_m else h
+                      for h in self.hardware]
+        return d
 
     def bom(self) -> list[dict]:
         rows: dict[str, dict] = {}

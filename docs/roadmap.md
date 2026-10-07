@@ -11,10 +11,17 @@ needs real joints.
      still has its own half-lap code; it could move to this.
    - ✅ `tab_slot(edge_part, face_part, edge, ...)`: tabs on an edge, matching slots in a face, any angle
      (car body panels).
-   - `finger_joint(part_a, edge_a, part_b, edge_b)`: box corners.
+   - ✅ `finger_joint(a, b, ...)`: box corners and T joints at any angle (overlap split into fingers).
+   - ✅ `pin_joint(parts, origin, axis, diameter, ...)`: holes with per-part fit, pin hardware, spacer washers.
+   - ✅ `living_hinge(part, region, ...)`: straight staggered-slit lattice (open cuts in `Part.cuts`).
+     Later: other patterns (wave, spiral), and a bent 3D preview of the hinged region.
+   - ✅ `cross_lap` joins each separate overlap span on its own (`spans="each"`).
    - `t_slot(..., screw="M3")`: bolt + captive nut, for things you want to take apart.
-   - `living_hinge(region, pattern)`: bendable areas (car roofs, curved panels).
    Each joint works in 3D (uses both transforms) and is checked by the collision test.
+1b. ✅ **Moving assemblies.** `design.Pivot` (axis, range, parent chain, gear driver), `Design.posed`, and
+   `validate.motion_collisions` (collision check across the range of motion). ✅ Involute gears in
+   `core/gears.py`. Next: pose sliders in the UI (the preview already carries `pivots`), a sweep that also
+   tries pivot combinations (today: each alone + all-min + all-max).
 2. **Assemblability check.** For each part, test whether it can slide out along its explode vector without
    colliding (sweep test). This catches "valid geometry, impossible to assemble".
 3. **Better nesting.** Polygon-aware nesting (e.g. port of SVGnest/deepnest ideas, or `pynest2d`), part rotation
@@ -65,10 +72,11 @@ a poseable figure. Later: shapes from a reference silhouette.
 ### `mechanism`: gears, clocks, simple machines
 
 - Involute spur gear generator (module, teeth, pressure angle, backlash), with layered gears for thickness.
+  Profiles, placement and the motion check exist in core (`core/gears.py`, `Pivot`).
 - Gear train solver: target ratio → teeth counts, centre distances; frame plates with axle holes.
 - Clock: gear train with ratios 12:1 and 60:1, frame, dial (engraved), weight-driven or hand-cranked.
   The escapement is the hard part and needs real prototyping.
-- Consider wrapping the `boxes.py` frame generators for enclosures instead of re-implementing them.
+- Enclosures: build on `finger_joint`. boxes.py is GPL-3.0: borrow ideas, don't port its code.
 
 ### `marble-run`: GraviTrax-style track pieces
 
@@ -81,5 +89,5 @@ a poseable figure. Later: shapes from a reference silhouette.
 
 ### Others
 
-- `box-joint`: thin wrapper around boxes.py generators so their output flows through the same UI/export.
+- `box`: finger-jointed boxes (lids, dividers) on `finger_joint` / `living_hinge`. Own code: boxes.py is GPL-3.0.
 - `sliceform`: two families of interlocking slices (egg-crate) from any mesh. Small extension of the car waffle mode.

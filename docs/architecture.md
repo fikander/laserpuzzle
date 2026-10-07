@@ -9,11 +9,11 @@
  │ (plug-in)    │                                                              │
  └──────┬───────┘                                                              │
         │ Design: parts (nominal 2D outline + 3D transform), hardware,         │
-        │         warnings, notes, stats, source mesh                          │
+        │         pivots, warnings, notes, stats, source mesh                  │
         ▼                                                                      │
  ┌──────────────┐  layout.fabricate: kerf offset + label strokes               │
  │   Pipeline   │  layout.nest:      parts → sheets                            │
- │ pipeline.run │  validate.collisions: 3D overlap check                       │
+ │ pipeline.run │  validate.collisions (+ motion_collisions): 3D overlap check │
  └──────┬───────┘                                                              │
         ▼                                                                      │
    Run ──► export.sheet_svg / sheet_dxf / zip / write(outdir)                  │
@@ -39,13 +39,22 @@ This split is what makes new generators cheap: a generator only produces a `Desi
   - `transform`: 4×4 rigid transform local → world (assembled position). Helpers: `horizontal(z)`,
     `vertical_xz(y, t)`, `vertical_yz(x, t)`, `plane_transform(origin, x_axis, y_axis, t, centered)`.
   - `engrave`: LineStrings to score; `label`: short text auto-placed and engraved.
+  - `cuts`: open LineStrings cut through without removing material (living-hinge slits); cut colour, no kerf.
   - `explode`: world-space offset for the exploded preview (UI multiplies by the slider value).
   - `group`: colour + BOM grouping; `quantity`: identical copies.
 - **Hardware** — bought items (dowels, axles, balls, magnets). Rendered in preview, listed in BOM.
-- **Joints** (`core/joints.py`) — `tab_slot`, `cross_lap`: place the parts first, then call a joint; it
-  edits both outlines in place using the transforms and returns a `Joint` (added/removed shapes, warnings
-  for the generator to pass to `design.warn`).
-- **Design** — parts + hardware + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
+- **Joints** (`core/joints.py`) — `tab_slot`, `cross_lap`, `finger_joint`, `pin_joint`, `living_hinge`:
+  place the parts first, then call a joint; it edits the outlines in place using the transforms and returns a
+  `Joint` (added/removed shapes, warnings for the generator to pass to `design.warn`, new `parts`/`hardware`
+  such as washers and pins for the generator to add, and joint-specific `info`).
+- **Pivot** — a rotation axis for moving assemblies (pin joints, turntables, gear shafts): world `origin` +
+  `axis` in the rest pose, the `parts`/`hardware` that turn about it, the allowed `range` in degrees, an
+  optional `parent` pivot it rides on (boom → stick → bucket) and an optional `driver` (pivot, ratio) for
+  gears. The Design is always built in its rest pose (all angles 0); `Design.posed(angles)` returns a moved
+  copy, `Design.pivot_problems()` lists inconsistent declarations.
+- **Design** — parts + hardware + pivots + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
+- **Gears** (`core/gears.py`) — involute `spur_gear` and `rack` outlines, `center_distance`, `gear_ratio`,
+  `mesh_rotation` (phase so a placed pair meshes).
 
 ## Coordinate conventions
 
@@ -66,8 +75,15 @@ This split is what makes new generators cheap: a generator only produces a `Desi
 
 `validate.collisions` extrudes every part, places it with its transform and intersects all pairs whose
 bounding boxes overlap (manifold3d). Any overlap above a small tolerance is reported. Every generator
-test should assert there are no collisions at clearance 0. Planned: assemblability check (each part has a
-collision-free insertion path) — see roadmap.
+test should assert there are no collisions at clearance 0. `only=` restricts the pairs checked.
+
+`validate.motion_collisions` handles designs with pivots: each free pivot is swept alone through its range
+(7 angles, others at rest), then all of them at their minimum and at their maximum; driven pivots follow their
+drivers. Only pairs whose relative position changed are re-checked, and pairs already overlapping at rest are
+left to `collisions`. Each colliding pair is reported once, at the pose with the largest overlap, with that
+pose. `run()` puts the result in `Run.motion_collisions` (also in the summary and preview).
+
+Planned: assemblability check (each part has a collision-free insertion path) — see roadmap.
 
 ## UI
 

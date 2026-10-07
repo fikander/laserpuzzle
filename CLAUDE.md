@@ -21,14 +21,17 @@ pytest -q                                      # ~2 s; run after every change
 src/laserpuzzle/
   core/            shared, generator-agnostic building blocks
     params.py      Param declarations -> CLI + UI form + validation; FABRICATION_PARAMS shared by all generators
-    design.py      Design / Part / Hardware data model, plane transforms (horizontal, vertical_xz, ...)
+    design.py      Design / Part / Hardware / Pivot data model, plane transforms, posing moving parts
     geometry.py    shapely helpers: mesh `section`, `clean`, `kerf_offset`, `band_x`, `rect`
-    joints.py      tab_slot (any angle), cross_lap; edit placed parts' outlines in place, return warnings
+    joints.py      tab_slot (any angle), cross_lap, finger_joint, pin_joint, living_hinge; edit placed parts
+                   in place, return warnings (+ new washer parts / pin hardware)
+    gears.py       involute spur gears / racks, centre distance, mesh phase
     mesh.py        load + normalise meshes (Z up, base on z=0, centred, scaled)
     font.py        single-stroke font for engraved labels (no SVG <text>)
     layout.py      fabricate (kerf + labels) and shelf-nest onto sheets
     export.py      SVG (cut_color/engrave_color, default red/blue, mm) and DXF (CUT/ENGRAVE layers)
-    validate.py    3D collision check between extruded parts (manifold3d; manifold WASM under Pyodide)
+    validate.py    3D collision check between extruded parts (manifold3d; manifold WASM under Pyodide),
+                   motion_collisions: the same check while every Pivot sweeps its range
   generators/      one module per puzzle type, auto-discovered; base.py = interface + registry
   pipeline.py      run(): generator -> design -> sheets -> collisions; Run.preview()/write()/zip
   cli.py           argparse entry point
@@ -68,7 +71,10 @@ subclass with `id`, `name`, `description`, `params`, `generate(v, ctx) -> Design
 - SVG export flips Y (SVG y-down) so parts look as seen from above and engraved text reads correctly.
 - `manifold3d` boolean intersections of exactly touching solids can return degenerate meshes → volume NaN; handled.
 - Shapely `buffer` with `join_style="mitre"` for kerf keeps slot corners sharp; round joins would loosen fits.
-- Joints: position parts first, then call `joints.*`; forward `Joint.warnings` to `design.warn`.
+- Joints: position parts first, then call `joints.*`; forward `Joint.warnings` to `design.warn` and add
+  `Joint.parts` / `Joint.hardware` (washers, pins) to the design.
+- `finger_joint` expects both plates drawn to full outer size (they overlap at the corner); it splits the overlap.
+- Moving parts: build the rest pose (all pivot angles 0), declare `Pivot`s, test `motion_collisions == []`.
 - Keep the project out of iCloud-synced folders (`~/Documents`, `~/Desktop`): iCloud sets the macOS `hidden`
   flag on the venv's editable-install `.pth` and Python 3.14 skips hidden `.pth` files (`import laserpuzzle` fails).
 - In this repo, `pawn.stl` is a Y-up sample model (auto up-axis detects it).
@@ -80,4 +86,7 @@ Done: core pipeline, `stacked-layers` (spine half-lap + dowel/spacers), `fit-tes
 laminated wheels with blind caps; push toy for a 3-year-old; trailer presets + peg/ring hitch standard so
 any vehicle tows any trailer), web UI with 3D + sheet preview, generator plugins from other packages
 (`laserpuzzle.generators` entry points, see `docs/adding-a-generator.md`).
-Next: finger/T-slot joints, living hinge (vehicle roof), better nesting, custom vehicle profiles (`docs/roadmap.md`).
+Joints for boxes and mechanisms: `finger_joint`, `pin_joint` (+ washers), `living_hinge` (`Part.cuts`),
+multi-span `cross_lap`; `Pivot`s + `validate.motion_collisions`; involute gears (`core/gears.py`).
+Next: T-slot joint, pose sliders in the UI, living-hinge vehicle roof, better nesting, custom vehicle profiles
+(`docs/roadmap.md`).

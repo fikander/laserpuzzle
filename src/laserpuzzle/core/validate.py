@@ -10,6 +10,10 @@ Two backends compute the overlap volumes: natively trimesh + the `manifold3d`
 package; in the browser (Pyodide) the page loads manifold's own WASM build
 (npm `manifold-3d`) and exposes it as `globalThis.manifold`, used through
 `js_collisions`. Both give the same volumes.
+
+`motion_collisions` repeats the check while each `Pivot` sweeps through its
+range (moving assemblies: pin joints, turntables, gears). Only pairs whose
+relative position changes are re-checked.
 """
 
 from __future__ import annotations
@@ -47,7 +51,11 @@ def _tolerance(pa: Part, pb: Part, tol_mm3: float | None) -> float:
     return tol_mm3 if tol_mm3 is not None else max(0.5, 0.05 * pa.thickness * pb.thickness * 10)
 
 
-def collisions(design: Design, tol_mm3: float | None = None) -> list[dict]:
+PairFilter = Callable[[Part, Part], bool]
+
+
+def collisions(design: Design, tol_mm3: float | None = None, only: PairFilter | None = None) -> list[dict]:
+    """Part pairs whose solids overlap. `only(a, b)` restricts the pairs checked."""
     try:
         import manifold3d  # noqa: F401
     except ImportError:
@@ -58,14 +66,21 @@ def collisions(design: Design, tol_mm3: float | None = None) -> list[dict]:
             except ImportError:
                 manifold = None
             if manifold is not None:
-                return js_collisions(design, manifold, to_js, tol_mm3)
+                return js_collisions(design, manifold, to_js, tol_mm3, only)
             return [{"error": "manifold WASM not loaded (globalThis.manifold) - collision check skipped"}]
         return [{"error": "manifold3d not installed - collision check skipped"}]
-    meshes = [(p, part_mesh(p)) for p in design.parts]
-    meshes = [(p, m) for p, m in meshes if m is not None]
+    pairs = [(a, b) for a, b in itertools.combinations(design.parts, 2) if only is None or only(a, b)]
+    cache: dict[int, trimesh.Trimesh | None] = {}
+
+    def mesh(p: Part):
+        if id(p) not in cache:
+            cache[id(p)] = part_mesh(p)
+        return cache[id(p)]
+
     out = []
-    for (pa, ma), (pb, mb) in itertools.combinations(meshes, 2):
-        if not _bbox_overlap(ma.bounds, mb.bounds):
+    for pa, pb in pairs:
+        ma, mb = mesh(pa), mesh(pb)
+        if ma is None or mb is None or not _bbox_overlap(ma.bounds, mb.bounds):
             continue
         try:
             inter = trimesh.boolean.intersection([ma, mb], engine="manifold")
@@ -82,15 +97,19 @@ def collisions(design: Design, tol_mm3: float | None = None) -> list[dict]:
 
 
 def js_collisions(design: Design, manifold: Any, to_js: Callable = lambda x: x,
-                  tol_mm3: float | None = None) -> list[dict]:
+                  tol_mm3: float | None = None, only: PairFilter | None = None) -> list[dict]:
     """`collisions` on manifold's JS API (`Module()` after `setup()`), for Pyodide.
 
     `to_js` converts Python lists for JS calls (pyodide.ffi.to_js). WASM objects
     are not garbage collected, so every solid is `delete()`d.
     """
     solids = []
+    pairs = [(a, b) for a, b in itertools.combinations(design.parts, 2) if only is None or only(a, b)]
+    wanted = {id(p) for pair in pairs for p in pair}
     try:
         for p in design.parts:
+            if id(p) not in wanted:
+                continue
             rings = []
             for poly in as_polygons(p.outline):
                 rings.append([list(c) for c in poly.exterior.coords[:-1]])
@@ -105,8 +124,12 @@ def js_collisions(design: Design, manifold: Any, to_js: Callable = lambda x: x,
             flat.delete()
             b = solid.boundingBox()
             solids.append((p, solid, np.array([list(b.min), list(b.max)], float)))
+        by_id = {id(p): (s, b) for p, s, b in solids}
         out = []
-        for (pa, sa, ba), (pb, sb, bb) in itertools.combinations(solids, 2):
+        for pa, pb in pairs:
+            if id(pa) not in by_id or id(pb) not in by_id:
+                continue
+            (sa, ba), (sb, bb) = by_id[id(pa)], by_id[id(pb)]
             if not _bbox_overlap(ba, bb):
                 continue
             inter = sa.intersect(sb)
@@ -120,3 +143,52 @@ def js_collisions(design: Design, manifold: Any, to_js: Callable = lambda x: x,
     finally:
         for _, s, _ in solids:
             s.delete()
+
+
+def sweep_poses(design: Design, steps: int = 7) -> list[dict[str, float]]:
+    """Poses `motion_collisions` checks: each free pivot alone at `steps` angles across its
+    range (others at rest), then all free pivots at their minimum and at their maximum."""
+    free = [p for p in design.pivots if p.driver is None]
+    poses: list[dict[str, float]] = []
+    for p in free:
+        lo, hi = p.range
+        poses += [{p.name: float(a)} for a in np.linspace(lo, hi, max(2, steps)) if abs(a) > 1e-9]
+    if len(free) > 1:
+        poses.append({p.name: float(p.range[0]) for p in free})
+        poses.append({p.name: float(p.range[1]) for p in free})
+    return poses
+
+
+def motion_collisions(design: Design, steps: int = 7, tol_mm3: float | None = None,
+                      rest: list[dict] | None = None) -> list[dict]:
+    """Collisions that appear while the mechanism moves (see `sweep_poses`).
+
+    Pairs that collide in the rest pose are `collisions`' business and are left out.
+    Each colliding pair is reported once, at the pose with the largest overlap:
+    {"a", "b", "volume_mm3", "pose": {pivot: degrees}}. `rest` = `collisions(design)` if already known.
+    """
+    if not design.pivots:
+        return []
+    problems = design.pivot_problems()
+    if problems:
+        return [{"error": "; ".join(problems)}]
+    rest_pairs = {(r["a"], r["b"]) for r in (collisions(design, tol_mm3) if rest is None else rest)
+                  if "volume_mm3" in r}
+    worst: dict[tuple[str, str], dict] = {}
+    for pose in sweep_poses(design, steps):
+        mot = design.motions(pose)
+        part_m = {n: mot[p.name] for p in design.pivots for n in p.parts}
+        eye = np.eye(4)
+
+        def moved_apart(a: Part, b: Part) -> bool:
+            if (a.name, b.name) in rest_pairs:
+                return False
+            return not np.allclose(part_m.get(a.name, eye), part_m.get(b.name, eye), atol=1e-9)
+
+        for r in collisions(design.posed(pose), tol_mm3, only=moved_apart):
+            key = (r.get("a", ""), r.get("b", ""))
+            if "error" in r:
+                worst.setdefault(key, r)
+            elif key not in worst or r["volume_mm3"] > worst[key].get("volume_mm3", 0):
+                worst[key] = {**r, "pose": {k: round(v, 1) for k, v in pose.items()}}
+    return list(worst.values())
