@@ -122,11 +122,20 @@ class Run:
             "range": [float(v.range[0]), float(v.range[1])], "parent": v.parent, "kind": v.kind,
             "driver": _driver_json(v.driver),
         } for v in self.design.pivots]
+        hw_ids = {h.name: i for i, h in enumerate(self.design.hardware)}
+        trajectories = [{
+            "hardware": hw_ids.get(tr.hardware, -1),
+            "times": [round(float(t), 4) for t in tr.times],
+            "points": [[round(float(x), 2) for x in p] for p in tr.points],
+            "pivots": {n: [round(float(x), 2) for x in v] for n, v in tr.pivots.items()},
+            "loop": tr.loop,
+        } for tr in self.design.trajectories]
         return {
             "run": self.id,
             "parts": parts,
             "hardware": hardware,
             "pivots": pivots,
+            "trajectories": trajectories,
             "sheets": [{"index": s.index, "width": s.width, "height": s.height, "count": len(s.items),
                         "svg": export.sheet_svg(s, show_sheet=True, **self.colors()),
                         "utilisation": round(s.used_area() / (s.width * s.height), 3)} for s in self.sheets],
@@ -179,6 +188,7 @@ def run(generator_id: str, raw_params: dict[str, Any], workdir: str | Path = "."
     if values["cut_color"] == values["engrave_color"]:
         warnings.append("Cut and engrave colours are the same - laser software can't tell cuts from engraving.")
     warnings += design.pivot_problems()
+    warnings += design.trajectory_problems()
     if collisions:
         warnings.append(f"{len(collisions)} part pair(s) overlap in 3D - see collisions.")
     hits = [m for m in motion if "volume_mm3" in m]

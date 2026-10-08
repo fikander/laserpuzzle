@@ -23,6 +23,8 @@ needs real joints.
    `validate.motion_collisions` (collision check across the range of motion). ✅ Involute gears in
    `core/gears.py`. Next: pose sliders in the UI (the preview already carries `pivots`), a sweep that also
    tries pivot combinations (today: each alone + all-min + all-max).
+   ✅ `design.Trajectory`: something travelling through the model (a ball), with the pivots moving along;
+   in the preview data, and checked along its path by `validate.trajectory_collisions`.
 2. **Assemblability check.** For each part, test whether it can slide out along its explode vector without
    colliding (sweep test). This catches "valid geometry, impossible to assemble".
 3. **Better nesting.** Polygon-aware nesting (e.g. port of SVGnest/deepnest ideas, or `pynest2d`), part rotation

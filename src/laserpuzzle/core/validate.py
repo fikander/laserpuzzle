@@ -14,6 +14,10 @@ package; in the browser (Pyodide) the page loads manifold's own WASM build
 `motion_collisions` repeats the check while each `Pivot` sweeps through its
 range (moving assemblies: pin joints, turntables, gears, cams). Only pairs whose
 relative position changes are re-checked.
+
+`trajectory_collisions` moves each travelling hardware item (a ball) along its
+`Trajectory` and reports the parts it runs into. It is native only and not part
+of `pipeline.run`; generators that emit trajectories check them in their tests.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from typing import Any, Callable
 import numpy as np
 import trimesh
 
-from .design import Design, Part, Pivot, is_cam, table_problem
+from .design import Design, Hardware, Part, Pivot, is_cam, table_problem
 from .geometry import as_polygons
 
 
@@ -33,7 +37,9 @@ def part_mesh(part: Part) -> trimesh.Trimesh | None:
     meshes = []
     for poly in as_polygons(part.outline):
         try:
-            meshes.append(trimesh.creation.extrude_polygon(poly, part.thickness))
+            # manifold's triangulation: earcut (trimesh's default) can fill a hole in a plate with many slots,
+            # which then shows up as a false overlap
+            meshes.append(trimesh.creation.extrude_polygon(poly, part.thickness, engine="manifold"))
         except Exception:  # pragma: no cover - degenerate polygon
             continue
     if not meshes:
@@ -224,3 +230,83 @@ def motion_collisions(design: Design, steps: int = 7, tol_mm3: float | None = No
             elif key not in worst or r["volume_mm3"] > worst[key].get("volume_mm3", 0):
                 worst[key] = {**r, "pose": {k: round(v, 1) for k, v in pose.items()}}
     return list(worst.values())
+
+
+def hardware_mesh(h: Hardware, shrink: float = 0.0) -> trimesh.Trimesh | None:
+    """Solid of a hardware item ("sphere", "cylinder" or "box", see `Hardware`), `shrink` mm smaller all round."""
+    s = h.size
+    if h.kind == "sphere":
+        m = trimesh.creation.icosphere(subdivisions=2, radius=max(1e-3, s["radius"] - shrink))
+    elif h.kind == "cylinder":
+        height = max(1e-3, s["height"] - 2 * shrink)
+        m = trimesh.creation.cylinder(radius=max(1e-3, s["radius"] - shrink), height=height, sections=24)
+        m.apply_translation((0.0, 0.0, height / 2 + shrink))          # axis = local z, base at 0
+    elif h.kind == "box":
+        m = trimesh.creation.box(extents=[max(1e-3, s[k] - 2 * shrink) for k in ("x", "y", "z")])
+    else:
+        return None
+    m.apply_transform(h.transform)
+    return m
+
+
+def trajectory_collisions(design: Design, step: float | None = None, shrink: float = 0.2,
+                          tol_mm3: float = 0.5) -> list[dict]:
+    """Parts the travelling items of `design.trajectories` run into.
+
+    Each item is placed along its path every `step` mm (default: a quarter of its smallest size), with the
+    trajectory's pivots moving the parts, and checked `shrink` mm smaller all round (it rolls on the
+    surfaces it touches). Each part it hits is reported once, at the first time:
+    {"item", "part", "volume_mm3", "time"}. Native only (needs `manifold3d`).
+    """
+    try:
+        import manifold3d  # noqa: F401
+    except ImportError:
+        return [{"error": "manifold3d not installed - trajectory check skipped"}]
+    problems = design.trajectory_problems() + (design.pivot_problems() if design.pivots else [])
+    if problems:
+        return [{"error": "; ".join(problems)}]
+    hw = {h.name: h for h in design.hardware}
+    rest = {id(p): part_mesh(p) for p in design.parts}
+    on_pivot = {n for p in design.pivots for n in p.parts}
+    out: list[dict] = []
+    for tr in design.trajectories:
+        h = hw[tr.hardware]
+        item = hardware_mesh(h, shrink)
+        if item is None:
+            continue
+        size = min(h.size.values()) * (2 if h.kind in ("sphere", "cylinder") else 1)
+        dist = step if step is not None else max(0.5, size / 4)
+        start = np.asarray(h.transform, float)[:3, 3]
+        times = np.asarray(tr.times, float)
+        pts = np.asarray(tr.points, float)
+        samples: list[float] = []
+        for i in range(len(times) - 1):
+            moved = float(np.linalg.norm(pts[i + 1] - pts[i]))
+            turned = max([abs(v[i + 1] - v[i]) for v in tr.pivots.values()] or [0.0])
+            n = max(1, int(np.ceil(max(moved / dist, turned / 5.0))))
+            samples += [float(x) for x in np.linspace(times[i], times[i + 1], n, endpoint=False)]
+        samples.append(float(times[-1]))
+        hit: set[str] = set()
+        for time in samples:
+            pos, pose = tr.at(time)
+            ball = item.copy()
+            ball.apply_translation(pos - start)
+            parts = design.posed(pose).parts if pose else design.parts
+            for p, q in zip(design.parts, parts):
+                if p.name in hit:
+                    continue
+                m = rest[id(p)]
+                if m is None:
+                    continue
+                if p.name in on_pivot and pose:
+                    m = part_mesh(q)
+                if not _bbox_overlap(ball.bounds, m.bounds):
+                    continue
+                inter = trimesh.boolean.intersection([ball, m], engine="manifold")
+                with np.errstate(all="ignore"):
+                    vol = float(abs(inter.volume)) if inter is not None and len(inter.faces) else 0.0
+                if np.isfinite(vol) and vol > tol_mm3:
+                    hit.add(p.name)
+                    out.append({"item": tr.hardware, "part": p.name, "volume_mm3": round(vol, 2),
+                                "time": round(time, 3)})
+    return out

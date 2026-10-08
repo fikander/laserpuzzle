@@ -54,7 +54,11 @@ This split is what makes new generators cheap: a generator only produces a `Desi
   (pivot, table) for a cam — `[(driver angle, value), ...]` over one turn, linear in between, repeating every
   turn (`cam_value`). The Design is always built in its rest pose (all values 0); `Design.posed(angles)`
   returns a moved copy, `Design.pivot_problems()` lists inconsistent declarations.
-- **Design** — parts + hardware + pivots + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
+- **Trajectory** — a hardware item travelling through the model (a ball rolling down a run): `times` (s) and
+  world `points` of the item, linear in between, optionally the values of free `pivots` at each time (a crank
+  turning with it), `loop`. The preview plays it; `validate.trajectory_collisions` (native, for tests) moves the
+  item along the path and reports the parts it runs into; `Design.trajectory_problems()` checks the data.
+- **Design** — parts + hardware + pivots + trajectories + `warnings` + `notes` (assembly steps) + `stats` + `source_mesh`.
 - **Gears** (`core/gears.py`) — involute `spur_gear` and `rack` outlines, `center_distance`, `gear_ratio`,
   `mesh_rotation` (phase so a placed pair meshes).
 

@@ -110,6 +110,7 @@ A plugin that fails to import produces a warning and is skipped; built-in genera
 | `joints.pin_joint(parts, origin, axis, d, fit=..., washer_thickness=t)` | holes for a pin through a stack, the pin as hardware, spacer washers |
 | `joints.living_hinge(part, region)` | staggered slits (`Part.cuts`) that make a region bendable; size it with `joints.hinge_length` |
 | `design.Pivot(name, origin, axis, parts=[...], range=(lo, hi))` | rotation axis for moving parts; checked by `validate.motion_collisions` |
+| `design.Trajectory(hardware, times, points, pivots={...})` | an item (ball) travelling through the model, animated in the preview; check it in tests with `validate.trajectory_collisions` |
 | `gears.spur_gear(module, teeth, backlash=b, bore=d)` | involute gear outline; place pairs with `center_distance` + `mesh_rotation` |
 | `font.text_lines(text, h, cx, cy, angle)` | engrave arbitrary text as strokes |
 | `mesh.load_model(path, up_axis, flip, height, rotate_z)` | normalised mesh |

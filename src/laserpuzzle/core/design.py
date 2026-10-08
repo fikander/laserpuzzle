@@ -19,6 +19,11 @@ Moving assemblies (pin joints, turntables, gears, cams and followers) describe
 their axes and guides as `Pivot`s. The Design is built in its rest pose (every
 pivot at 0); `Design.posed(angles)` moves the parts, and
 `validate.motion_collisions` sweeps each pivot through its range.
+
+Things that travel through the model (a ball rolling down a run) are
+`Trajectory`s: a hardware item's position over time, optionally with the
+pivots that move along with it. The preview plays them;
+`validate.trajectory_collisions` checks the item against the parts on the way.
 """
 
 from __future__ import annotations
@@ -159,6 +164,36 @@ class Pivot:
 PIVOT_KINDS = ("turn", "slide")
 
 
+@dataclass
+class Trajectory:
+    """A hardware item travelling through the model over time (a ball rolling down a run), played as an
+    animation in the preview.
+
+    hardware  Name of the `Hardware` item that travels. Its transform is where it rests when not playing;
+              while playing, `points` replace its translation (the rotation is kept).
+    times     Seconds, rising, from 0.
+    points    World position of the item's origin at each time; linear in between, so sample curves densely.
+    pivots    Optional values of free pivots at each time (pivot name -> list as long as `times`): a mechanism
+              moving with the item, such as the crank of a lift. Driven pivots follow their drivers.
+    loop      Played round and round; the last point should lead back to the first.
+    """
+
+    hardware: str
+    times: list[float]
+    points: list[tuple[float, float, float]]
+    pivots: dict[str, list[float]] = field(default_factory=dict)
+    loop: bool = True
+
+    def at(self, time: float) -> tuple[np.ndarray, dict[str, float]]:
+        """Position and pivot values at `time` (s; wraps round if `loop`, else clamped)."""
+        t = np.asarray(self.times, float)
+        if self.loop and t[-1] > 0:
+            time = time % t[-1]
+        p = np.asarray(self.points, float)
+        pos = np.array([np.interp(time, t, p[:, k]) for k in range(3)])
+        return pos, {n: float(np.interp(time, t, v)) for n, v in self.pivots.items()}
+
+
 def is_cam(driver) -> bool:
     """True for a (pivot, table) driver, False for a (pivot, ratio) one."""
     return driver is not None and not isinstance(driver[1], (int, float, np.number))
@@ -195,6 +230,7 @@ class Design:
     parts: list[Part] = field(default_factory=list)
     hardware: list[Hardware] = field(default_factory=list)
     pivots: list[Pivot] = field(default_factory=list)
+    trajectories: list[Trajectory] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)      # assembly instructions, tips
     source_mesh: Any = None                             # trimesh.Trimesh in world coords (for ghost preview)
@@ -240,6 +276,27 @@ class Design:
             if cur is not None:
                 out.append(f"Pivot {p.name}: parent/driver chain loops.")
                 break
+        return out
+
+    def trajectory_problems(self) -> list[str]:
+        """Inconsistent trajectories (unknown hardware or pivots, times not rising, lists of different lengths)."""
+        out = []
+        hw = {h.name for h in self.hardware}
+        free = {p.name for p in self.pivots if p.driver is None}
+        for i, tr in enumerate(self.trajectories):
+            name = f"Trajectory {i + 1} ({tr.hardware})"
+            if tr.hardware not in hw:
+                out.append(f"{name}: no hardware named {tr.hardware}.")
+            t = np.asarray(tr.times, float)
+            if len(t) < 2 or len(tr.points) != len(t):
+                out.append(f"{name}: needs at least two times and one point per time.")
+            elif t[0] < 0 or np.any(np.diff(t) < 0) or not np.all(np.isfinite(t)):
+                out.append(f"{name}: times must rise from 0.")
+            for n, v in tr.pivots.items():
+                if n not in free:
+                    out.append(f"{name}: no free pivot named {n}.")
+                elif len(v) != len(t):
+                    out.append(f"{name}: pivot {n} needs one value per time.")
         return out
 
     def pivot_angles(self, angles: dict[str, float]) -> dict[str, float]:
