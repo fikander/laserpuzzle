@@ -74,7 +74,7 @@ class FitTest(Generator):
         d.notes += [
             "Cut with your normal power/speed settings and the kerf entered under Material & machine.",
             "Push the key into each slot. Pick the clearance with the fit you want and use it as 'Slot clearance'.",
-            "If even the loosest slot is tight, your kerf value is too small (or the sheet is thicker than entered).",
+            "If even the loosest slot is tight, your kerf value is too large (or the sheet is thicker than entered).",
         ]
         return d
 
