@@ -16,14 +16,17 @@ short edges are joined to the sides with `joints.tab_slot`.
 
 Running gear
 ------------
-Steel rod axles pass through both side plates above the floor and turn in
-running-fit holes (optionally doubled with glued bearing pads). Wheels sit
+Steel rod axles turn in running-fit holes in both side plates (optionally
+doubled with glued bearing pads). By default they run under the floor, through
+rounded lugs that the side plates grow below the body, so the body sits high
+and clears the ground; or they run through the body just above the floor
+panel, for a lower body. Wheels sit
 outside the body and are glued onto the rod (press fit): hub spacer, inner
 layer, optional narrower middle layer (groove for an O-ring tyre) and an
 outer cap without a hole, so no rod end is exposed.
 
 Dimensions come from real-world presets scaled 1:N. "Toy proportions"
-enlarges the wheels so the car rolls on carpet and the axle clears the floor.
+enlarges the wheels so the car rolls on carpet.
 """
 
 from __future__ import annotations
@@ -75,9 +78,9 @@ PRESETS: dict[str, dict] = {
                         floor=450, doors=0, windows=0, side_lines=("h", 4.0),
                         top=[("front", 0, 950), ("top", 2500, 950, "open"), ("rear", 2500, 450)]),
     "trailer-flatbed": dict(kind="trailer", length=5000, width=3000, wheel=650, front_axle=3000, wheelbase=1000,
-                            floor=400, doors=0, windows=0,
+                            floor=250, doors=0, windows=0,
                             top=[("headboard", 0, 1400), ("headboard top", 500, 1400),
-                                 ("headboard back", 500, 750), ("deck", 5000, 750), ("rear", 5000, 400)]),
+                                 ("headboard back", 500, 750), ("deck", 5000, 750), ("rear", 5000, 250)]),
     "trailer-container": dict(kind="trailer", length=6100, width=2440, wheel=800, front_axle=4300, wheelbase=1300,
                               floor=500, doors=0, windows=0, side_lines=("v", 2.5),
                               top=[("front", 0, 2900), ("roof", 6100, 2900), ("rear", 6100, 500)]),
@@ -89,7 +92,10 @@ PRESETS: dict[str, dict] = {
 
 TOY_WHEEL = 1.35          # wheel enlargement in toy proportions
 TURN = math.radians(35)   # trailer may swing this far either way without bodies touching
-AXLE_GAP = 1.5            # rod surface to floor top
+AXLE_GAP = 1.5            # axle above the floor: rod surface to floor top
+LUG_WALL = 2.5            # axle under the floor: wood around the hole in the side-plate lugs
+FLOOR_WALL = 2.0          # axle under the floor: wood between the hole and the floor slot
+LUG_CLEAR = 2.0           # axle under the floor: lug bottom above the ground, at least
 WHEEL_GAP = 0.5           # hub spacer to side plate (axial play)
 
 
@@ -176,7 +182,7 @@ class Vehicle(Generator):
         Param("length", "float", 0.0, "Model length", unit="mm", min=0, max=1000, step=1,
               help="Overrides the scale to fit this length (0 = use scale).", group="Vehicle"),
         Param("toy_proportions", "bool", True, "Toy proportions",
-              help=f"Wheels {TOY_WHEEL}x larger than scale: rolls better and leaves room for the axle.",
+              help=f"Wheels {TOY_WHEEL}x larger than scale: rolls better on carpet.",
               group="Vehicle"),
         Param("width", "float", 0.0, "Body width", unit="mm", min=0, max=500, step=1,
               help="Width of the body between the wheels (0 = from preset and scale).", group="Vehicle"),
@@ -192,8 +198,14 @@ class Vehicle(Generator):
               help="Small ring between wheel and body: less friction than the whole wheel face.", group="Wheels"),
         Param("rod_diameter", "float", 3.0, "Axle rod diameter", unit="mm", min=1, max=10, step=0.1,
               help="Measured diameter of the steel rod.", group="Axles"),
-        Param("press_fit", "float", -0.1, "Press-fit hole offset", unit="mm", min=-1, max=1, step=0.01,
-              help="Wheel hole = rod + this. Find it with the fit-test hole strip.", group="Axles"),
+        Param("axle_position", "choice", "under-floor", "Axle position", choices=["under-floor", "above-floor"],
+              help="Under the floor: the rod runs through lugs below the body - more ground clearance. Above "
+                   "the floor: through the body - a lower body (lower the hitch height to ~8 mm too).",
+              group="Axles"),
+        Param("press_fit", "float", 0.0, "Press-fit hole offset", unit="mm", min=-1, max=1, step=0.01,
+              help="Wheel and hub-spacer hole = rod + this: a snug fit, the wheels are glued on and turn with "
+                   "the rod (the body holes are the loose ones). Find it with the fit-test hole strip.",
+              group="Axles"),
         Param("running_fit", "float", 0.15, "Running-fit hole offset", unit="mm", min=-0.5, max=1, step=0.01,
               help="Bearing hole = rod + this. Find it with the fit-test hole strip.", group="Axles"),
         Param("bearing_pads", "int", 1, "Bearing pads per side", min=0, max=2,
@@ -208,7 +220,7 @@ class Vehicle(Generator):
               help="Doors, wheel arches, lights, grille.", group="Body"),
         Param("rear_hitch", "bool", True, "Tow hitch at the rear",
               help="Peg on a tongue behind the vehicle; a trailer's drawbar ring drops over it.", group="Hitch"),
-        Param("hitch_height", "float", 8.0, "Hitch height", unit="mm", min=4, max=40, step=0.5,
+        Param("hitch_height", "float", 20.0, "Hitch height", unit="mm", min=4, max=40, step=0.5,
               help="Top of the tongue above the ground. Use the same value (and sheet) for everything "
                    "that should couple: it fixes the floor height.", group="Hitch"),
         Param("support_foot", "bool", True, "Trailer support foot",
@@ -227,43 +239,56 @@ class Vehicle(Generator):
         trailer = pr.get("kind") == "trailer"
         hitched = trailer or v.rear_hitch
         W = v.width if v.width > 0 else pr["width"] / N
+        under = v.axle_position == "under-floor"
+        run_r = (rod + v.running_fit) / 2
+        lug_r = run_r + LUG_WALL                          # under the floor: side-plate lug around the hole
         lo = v.rim + 2.0                                  # side plates clear the ground
         # Couplable vehicles share one floor height: the tongue (floor extension) top is at hitch_height.
-        z_want = v.hitch_height - t if hitched else pr["floor"] / N
-        d_floor = 2 * (max(z_want, lo) + t + AXLE_GAP + rod / 2)   # smallest wheel with the axle above that floor
+        z_want = max(v.hitch_height - t if hitched else pr["floor"] / N, lo)
         if v.wheel_diameter > 0:
             D = v.wheel_diameter
         else:
             D = pr["wheel"] / N * (TOY_WHEEL if v.toy_proportions else 1)
-            if hitched and D < d_floor:
-                D = d_floor
+            if hitched and under:                         # largest wheel with the axle under that floor
+                d_max = 2 * (z_want - run_r - FLOOR_WALL)
+                if d_max >= 2 * (lug_r + LUG_CLEAR):
+                    D = min(D, d_max)
+            elif hitched:                                 # smallest wheel with the axle above that floor
+                D = max(D, 2 * (z_want + t + AXLE_GAP + rod / 2))
         R = D / 2
         z_axle = R
-        hi = z_axle - rod / 2 - AXLE_GAP - t              # axle runs above the floor
-        if hi < lo:
-            need = 2 * (lo + t + AXLE_GAP + rod / 2)
-            raise ValueError(f"wheels (Ø{D:.1f} mm) are too small to run a Ø{rod:g} mm axle above the floor; "
-                             f"use wheels of at least Ø{need:.1f} mm or turn on toy proportions")
-        z_floor = min(max(z_want, lo), hi)
-        if hitched and abs(z_floor - z_want) > 1e-6:
-            d.warn(f"Floor can't be at hitch height - {t:g} mm ({z_want:.1f} mm), it is at {z_floor:.1f} mm: "
-                   "coupled vehicles won't sit level. Change wheel diameter or hitch height.")
+        if under:
+            if R - lug_r < LUG_CLEAR:
+                raise ValueError(f"wheels (Ø{D:.1f} mm) are too small for a Ø{rod:g} mm axle under the floor; "
+                                 f"use wheels of at least Ø{2 * (lug_r + LUG_CLEAR):.1f} mm")
+            z_floor = max(z_want, z_axle + run_r + FLOOR_WALL)
+        else:
+            hi = z_axle - rod / 2 - AXLE_GAP - t          # axle runs above the floor
+            if hi < lo:
+                need = 2 * (lo + t + AXLE_GAP + rod / 2)
+                raise ValueError(f"wheels (Ø{D:.1f} mm) are too small to run a Ø{rod:g} mm axle above the "
+                                 f"floor; use wheels of at least Ø{need:.1f} mm or turn on toy proportions")
+            z_floor = min(z_want, hi)
+        if hitched and abs(z_floor - (v.hitch_height - t)) > 1e-6:
+            d.warn(f"Floor can't be at hitch height - {t:g} mm ({v.hitch_height - t:.1f} mm), it is at "
+                   f"{z_floor:.1f} mm: coupled vehicles won't sit level. Change wheel diameter or hitch height.")
         if W < 4 * t + 10:
             raise ValueError(f"body is too narrow ({W:.1f} mm)")
 
         L = pr["length"] / N
+        lift = max(0.0, z_floor - pr["floor"] / N)      # a raised floor lifts the whole body, not just the floor
         xm = lambda x_real: (pr["length"] / 2 - x_real) / N            # noqa: E731  front at +X
         pts = [np.array([xm(0), z_floor])]
         names, open_ = [], set()
         for name, x, z, *flags in pr["top"]:
-            pts.append(np.array([xm(x), z_floor if z == pr["floor"] else z / N]))
+            pts.append(np.array([xm(x), z_floor if z == pr["floor"] else z / N + lift]))
             names.append(name)
             if "open" in flags:
                 open_.add(name)
         names.append("floor")
         profile = Polygon([tuple(p) for p in pts])
         if "belt" in pr:
-            belt = pr["belt"] / N
+            belt = pr["belt"] / N + lift
         else:
             belt = next((pts[i][1] for i, nm in enumerate(names) if nm == "windscreen"), None)
         axles = [xm(pr["front_axle"])] + ([xm(pr["front_axle"] + pr["wheelbase"])] if pr["wheelbase"] else [])
@@ -280,7 +305,6 @@ class Vehicle(Generator):
         if v.corner_radius > 0:
             r = min(v.corner_radius, v.rim * 0.9)
             side = side.buffer(-r, join_style="round").buffer(r, join_style="round")
-        run_r = (rod + v.running_fit) / 2
         engr: list[LineString] = []
         win_shapes = self._windows(profile, belt, pr["windows"], v.rim + t + 1.5) if belt is not None else []
         if v.windows == "cut":
@@ -292,6 +316,12 @@ class Vehicle(Generator):
             engr += self._side_details(side, win_shapes, pr["doors"], belt, z_floor + t, axles, R)
             if "side_lines" in pr:
                 engr += self._side_lines(profile, pr["side_lines"], v.rim + t + 1.0, z_floor + t, axles, R)
+        if under:
+            z0 = side.bounds[1]                           # bottom edge, under the floor
+            for xa in axles:
+                if not side.contains(LineString([(xa - lug_r, z0 + 0.01), (xa + lug_r, z0 + 0.01)])):
+                    d.warn(f"Axle at x={xa:.1f} mm is past the end of the body - its lug sticks out.")
+                side = self._add_lug(side, self._lug(xa, z_axle, lug_r, z_floor), z0)
         for xa in axles:
             side = side.difference(Point(xa, z_axle).buffer(run_r, quad_segs=24))
         side = clean(side)
@@ -341,11 +371,14 @@ class Vehicle(Generator):
         pad_top = z_axle + rod / 2 + 4
         interior = profile.buffer(-t, join_style="mitre", mitre_limit=3.0)
         for xa in axles:
-            if not interior.contains(Point(xa, z_axle).buffer(rod / 2 + 0.5)):
+            if not under and not interior.contains(Point(xa, z_axle).buffer(rod / 2 + 0.5)):
                 d.warn(f"Axle at x={xa:.1f} mm runs into a body panel - use smaller wheels or a taller body.")
         if v.bearing_pads:
             for ai, xa in enumerate(axles):
-                pad = rect(xa - pw / 2, floor_top, xa + pw / 2, pad_top).intersection(interior)
+                if under:                                 # the lug's shape, under the floor panel
+                    pad = self._lug(xa, z_axle, lug_r, z_floor)
+                else:
+                    pad = rect(xa - pw / 2, floor_top, xa + pw / 2, pad_top).intersection(interior)
                 if not pad.buffer(1e-6).contains(Point(xa, z_axle).buffer(run_r + 1.0)):
                     d.warn(f"Bearing pad at x={xa:.1f} mm is cut short by the body - little wood around the hole.")
                 pad = clean(pad.difference(Point(xa, z_axle).buffer(run_r, quad_segs=24)), min_area=1.0)
@@ -400,7 +433,10 @@ class Vehicle(Generator):
                         note=f"ID ≈ {D - 2 * v.groove_depth - 1:.0f} mm, cord ≈ {min(t, 2 * v.groove_depth):.1f}"
                              " mm (or a rubber band)"))
 
-        self._checks(d, panels, axles, z_axle, rod, pw, floor_top, t, R, D, W)
+        if not under:
+            self._checks(d, panels, axles, pw, t)
+        if W < 3 * rod + 20:
+            d.warn("Body is narrow: the axles will wobble. Add bearing pads or widen the body.")
 
         total_w = 2 * y
         d.stats.update({
@@ -411,6 +447,7 @@ class Vehicle(Generator):
             "height_mm": round(max(p[1] for p in pts) + v.rim, 1),
             "wheel_diameter_mm": round(D, 1),
             "floor_height_mm": round(z_floor, 2),
+            "ground_clearance_mm": round(sides[0].outline.bounds[1], 2),
             "rod_length_mm": round(rod_len, 1),
             "press_fit_hole_mm": round(rod + v.press_fit, 2),
             "running_fit_hole_mm": round(rod + v.running_fit, 2),
@@ -498,6 +535,20 @@ class Vehicle(Generator):
         return out
 
     # ---------------------------------------------------------------- sides
+    @staticmethod
+    def _lug(xa: float, z_axle: float, r: float, z_top: float) -> Polygon:
+        """Round-bottomed lug around an axle under the floor, up to z_top."""
+        return Point(xa, z_axle).buffer(r, quad_segs=32).union(rect(xa - r, z_axle, xa + r, z_top))
+
+    @staticmethod
+    def _add_lug(side: Polygon, lug: Polygon, z_bottom: float, fillet: float = 1.5) -> Polygon:
+        """Side plate + lug, with the inside corners where the lug leaves the plate's bottom edge rounded."""
+        x0, _, x1, _ = lug.bounds
+        strip = rect(x0 - 3 * fillet, z_bottom, x1 + 3 * fillet, z_bottom + 2 * fillet)   # inside the plate
+        web = lug.union(strip).buffer(fillet, quad_segs=8).buffer(-fillet, quad_segs=8)
+        web = web.intersection(rect(x0 - 3 * fillet, -BIG, x1 + 3 * fillet, z_bottom + fillet))
+        return clean(side.union(web))
+
     @staticmethod
     def _windows(profile: Polygon, belt: float, count: int, inset: float) -> list[Polygon]:
         if count < 1:
@@ -644,15 +695,13 @@ class Vehicle(Generator):
 
     # --------------------------------------------------------------- checks
     @staticmethod
-    def _checks(d, panels, axles, z_axle, rod, pw, floor_top, t, R, D, W) -> None:
+    def _checks(d, panels, axles, pw, t) -> None:
         ends = [p for p in panels if p.name in ("front", "rear")]
         for xa in axles:
             for p in ends:
                 inner_x = (p.a - p.n * t)[0]
                 if abs(inner_x - xa) < pw / 2 + 0.5:
                     d.warn(f"Axle at x={xa:.1f} is too close to the {p.name} panel - shorten the overhang.")
-        if W < 3 * rod + 20:
-            d.warn("Body is narrow: the axles will wobble. Add bearing pads or widen the body.")
 
     @staticmethod
     def _assembly(v: Values, rod_len: float, groove: bool, D: float, n_axles: int, trailer: bool) -> list[str]:

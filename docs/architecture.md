@@ -114,4 +114,4 @@ applied to a wrapper group. Last-used params are stored per generator in localSt
 `docs/images/*` are screenshots. The renders (`convoy`, `lineup`, `exploded`, `pawn`) come from
 `scripts/readme_images.py`, which writes one HTML page with every scene built from real generator output
 (open `scenes.html#convoy` etc. at 1600×900 and screenshot it). `app.png` is the web UI and `cut-sheet.png`
-is a jeep cut file on a 380×160 mm sheet.
+is a jeep cut file on a 400×180 mm sheet.

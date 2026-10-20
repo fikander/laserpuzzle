@@ -44,12 +44,44 @@ def test_cut_windows_make_holes():
     assert len(cut.outline.interiors) == len(engraved.outline.interiors) + PRESETS["sedan"]["windows"]
 
 
-def test_true_scale_wheels_too_small_for_axle():
+def test_axle_under_floor_clears_the_ground():
+    r = run("vehicle", {"preset": "sedan", "thickness": 3})
+    st = r.design.stats
+    R = st["wheel_diameter_mm"] / 2
+    run_r = (3.0 + 0.15) / 2
+    # Floor at hitch height - t, above the rod; the lugs (hole + 2.5 mm wall) are the lowest point.
+    assert st["floor_height_mm"] == pytest.approx(20 - 3)
+    assert st["floor_height_mm"] >= R + run_r + 2.0 - 1e-6
+    assert st["ground_clearance_mm"] == pytest.approx(R - run_r - 2.5, abs=0.05)
+    assert st["ground_clearance_mm"] > 7
+    # The rod sits in the side plates below the floor, in a hole with wood all round.
+    side = r.design.parts[0].outline
+    holes = [i for i in side.interiors if abs(i.centroid.y - R) < 0.1]
+    assert len(holes) == 2
+
+
+def test_axle_under_floor_shrinks_big_auto_wheels_to_fit_under_the_hitch_floor():
+    r = run("vehicle", {"preset": "bus", "thickness": 3})
+    assert r.design.warnings == []
+    assert r.design.stats["wheel_diameter_mm"] == pytest.approx(2 * (17 - (3.0 + 0.15) / 2 - 2.0), abs=0.05)
+
+
+def test_axle_under_floor_wheels_too_small():
     with pytest.raises(ValueError, match="too small"):
-        run("vehicle", {"preset": "sedan", "toy_proportions": False, "rear_hitch": False})
+        run("vehicle", {"wheel_diameter": 10})
+
+
+def test_axle_above_floor_true_scale_wheels_too_small_for_axle():
+    above = {"preset": "sedan", "axle_position": "above-floor", "hitch_height": 8}
+    with pytest.raises(ValueError, match="too small"):
+        run("vehicle", {**above, "toy_proportions": False, "rear_hitch": False})
     # With a hitch the floor height is fixed, so automatic wheels grow just enough for the axle.
-    r = run("vehicle", {"preset": "sedan", "toy_proportions": False})
+    r = run("vehicle", {**above, "toy_proportions": False})
     assert r.design.stats["wheel_diameter_mm"] == pytest.approx(2 * (5 + 3 + 1.5 + 1.5))
+    assert r.collisions == []
+    r = run("vehicle", above)
+    assert r.collisions == [] and r.design.warnings == []
+    assert r.design.stats["ground_clearance_mm"] == pytest.approx(5 - 2)
 
 
 def test_two_layer_wheels_and_no_pads():
@@ -99,7 +131,7 @@ def test_misaligned_ring_is_detected():
 
 def test_all_vehicles_share_the_hitch_height():
     floors = {p: run("vehicle", {"preset": p}, check=False).design.stats["floor_height_mm"] for p in PRESETS}
-    assert set(floors.values()) == {5.0}            # hitch 8 - 3 mm sheet
+    assert set(floors.values()) == {17.0}           # hitch 20 - 3 mm sheet
 
 
 def test_trailer_parts_and_no_hitch_option():
