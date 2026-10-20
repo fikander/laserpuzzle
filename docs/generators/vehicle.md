@@ -12,17 +12,22 @@ screen/             \ window
 _____/               \______
 hood                    boot |  ← rear
 |  front                     |
- \__(O)______________(O)____/   ← floor; axles above the floor, wheels outside the body
+|____________________________|  ← floor
+   (O)              (O)         ← axles under the floor, in lugs on the side plates; wheels outside the body
 ```
 
 - **Side plates** (2): the side profile grown by `rim`, with corners rounded by `corner_radius`, axle holes
-  (running fit), engraved windows/doors/wheel arches. Windows can be cut through instead (`windows=cut`).
+  (running fit), engraved windows/doors/wheel arches. With `axle_position=under-floor` (default) each axle hole
+  sits in a round-bottomed **lug** (hole + 2.5 mm of wood) that the side plate grows below the body, with
+  filleted inside corners; the floor sits 2 mm above the hole. With `above-floor` the rod runs through the
+  body just above the floor panel, for a lower body but little ground clearance. Windows can be cut through instead (`windows=cut`).
 - **Body panels**: one per profile segment (front, hood, windscreen, roof, rear window, boot, rear, floor),
   spanning between the sides with tabs through slots in both side plates (`joints.tab_slot`). At each crease
   the longer panel runs to the corner and the shorter one is trimmed to just touch it, so convex creases show a
   small V-notch (laser cuts are square).
 - **Axles**: steel rod through running-fit holes in both sides, plus `bearing_pads` glued inside each side
-  (longer bearing = less wobble). The axle turns with the wheels.
+  (longer bearing = less wobble). Under the floor the pads have the lug's shape and also glue to the floor's
+  underside. The axle turns with the wheels.
 - **Wheels**: hub spacer + inner layer + (optional) narrower middle layer forming a groove for an O-ring tyre +
   **outer cap with no hole**, all glued onto the rod (press fit). No rod end is exposed.
 
@@ -48,9 +53,11 @@ middle and a **support foot** under the front, so an unhitched trailer stands al
   peg diagonal + 1.5 mm) that drops over the peg and rests on the tongue. The ring is circular, so the trailer
   swings freely; the drawbar is long enough for ±35° before the bodies touch (checked by a test that couples
   cars and trailers in 3D at 0° and ±35°).
-- `hitch_height` (default 8 mm, top of the tongue) fixes the floor height of **every** vehicle at
-  `hitch_height - thickness`, so coupled vehicles sit level. When the wheels are automatic, they grow if needed
-  to leave room for the axle above that floor. Use the same `hitch_height` and sheet for everything that should
+- `hitch_height` (default 20 mm, top of the tongue) fixes the floor height of **every** vehicle at
+  `hitch_height - thickness`, so coupled vehicles sit level. When the wheels are automatic they adapt to that
+  floor: under the floor they shrink if needed to keep the axle below it (the bus at the defaults), above the
+  floor they grow to leave room for the axle. With `above-floor` axles use a low hitch (~8 mm) or the wheels get
+  very big. Use the same `hitch_height` and sheet for everything that should
   couple.
 - No magnets: small neodymium magnets are a serious swallowing hazard for under-3s.
 
@@ -61,17 +68,20 @@ Presets store real-world sizes (mm) of a typical car of each type: `sedan`, `hat
 an exact model length. Common scales: 1:64 Matchbox (~7 cm), 1:43 (~11 cm), **1:36 (~13 cm, default)**,
 1:32 (~14 cm), 1:24 (~19 cm).
 
-`toy_proportions` (default on) makes the wheels 1.35x larger than scale. At true scale the wheels are too small
-to run a 3 mm axle above the floor of a 3 mm-ply body below ~1:30; the generator says so.
+`toy_proportions` (default on) makes the wheels 1.35x larger than scale. With `above-floor` axles, at true scale
+the wheels are too small to run a 3 mm axle above the floor of a 3 mm-ply body below ~1:30; the generator says so.
 
-The floor height is taken from the preset when possible, then clamped so the side plates clear the ground by
-2 mm and the rod clears the floor by 1.5 mm.
+The floor height is taken from the preset (or the hitch) when possible. Under the floor it is raised to clear
+the axle hole by 2 mm, and a raised floor lifts the whole body with it (the panels keep their heights); the
+lugs then clear the ground by wheel radius - hole radius - 2.5 mm (~8 mm on the default sedan, stat
+`ground_clearance_mm`). Above the floor it is clamped so the side plates clear the ground by 2 mm and the rod
+clears the floor by 1.5 mm.
 
 ## Fits
 
 | hole | size | parameter |
 |---|---|---|
-| wheel layers, hub spacer | rod + `press_fit` | find with the `fit-test` hole strip: firm push, no turning |
+| wheel layers, hub spacer | rod + `press_fit` (default 0) | find with the `fit-test` hole strip: snug, glued on, turns with the rod |
 | side plates, bearing pads | rod + `running_fit` | spins freely, no wobble |
 
 Slots for the panel tabs use the usual `clearance`. Since everything is glued, a sliding fit (0…+0.05) is easier
